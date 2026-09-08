@@ -1,4 +1,20 @@
 // Helpers da tela Feedback Colaborador.
+import { addYears, isValid, parseISO } from "date-fns";
+import type { TempoDeCasaFilter } from "./types";
+
+/** O aniversário de um ano ainda pertence a "até um ano", sem deslocar o fuso. */
+export function getTempoDeCasa(
+  dataAdmissao: string | null | undefined,
+  referenceDate = todayISO(),
+): Exclude<TempoDeCasaFilter, "all"> | null {
+  if (!dataAdmissao || !/^\d{4}-\d{2}-\d{2}(?:$|T| )/.test(dataAdmissao)) return null;
+
+  const admissao = parseISO(dataAdmissao.slice(0, 10));
+  const hoje = parseISO(referenceDate);
+  if (!isValid(admissao) || !isValid(hoje) || admissao > hoje) return null;
+
+  return hoje <= addYears(admissao, 1) ? "ate-um-ano" : "mais-de-um-ano";
+}
 
 /**
  * Formata uma data vinda da agenda pra exibição pt-BR, **sem shift de fuso**.
