@@ -2,7 +2,8 @@
 //
 // Proxy AO VIVO (sem espelho local) pro painel de Feedback do Colaborador /
 // Guardião da Cultura na API legada api.softcom.cloud. Diferente de
-// `collaborator-subresource`, NÃO grava em tabela local — só repassa.
+// `collaborator-subresource`, NÃO grava em tabela local. Complementa o painel
+// com a data de admissão do cadastro do DNA para segmentação por tempo de casa.
 //
 // Body:
 //   {
@@ -104,7 +105,32 @@ serve(async (req) => {
           suporteId: numOrUndef(body.suporteId),
           lancamentoUsuarioId: numOrUndef(body.lancamentoUsuarioId),
         });
-        return jsonResponse(result);
+        if (result.colaboradores.length === 0) return jsonResponse(result);
+
+        // A permissão de feedback já foi validada acima. Lê somente as datas
+        // dos IDs presentes no painel e pertencentes à empresa autorizada.
+        const sbAdmin = createClient(supabaseUrl, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+        const ids = [...new Set(result.colaboradores.map((c) => String(c.id)))];
+        const admissionDates = new Map<string, string | null>();
+        for (let offset = 0; offset < ids.length; offset += 200) {
+          const { data: collaborators, error } = await sbAdmin
+            .from("collaborators")
+            .select("external_id, admission_date")
+            .eq("company_id", companyId)
+            .in("external_id", ids.slice(offset, offset + 200));
+          if (error) throw new Error("Não foi possível carregar as datas de admissão.");
+          for (const collaborator of collaborators ?? []) {
+            admissionDates.set(collaborator.external_id, collaborator.admission_date);
+          }
+        }
+
+        return jsonResponse({
+          ...result,
+          colaboradores: result.colaboradores.map((c) => ({
+            ...c,
+            dataAdmissao: admissionDates.get(String(c.id)) ?? null,
+          })),
+        });
       }
       case "busca-colaborador": {
         const result = await buscaColaborador(
@@ -166,8 +192,7 @@ function requireNum(v: unknown, field: string): number {
 }
 
 async function checkPermission(
-  // deno-lint-ignore no-explicit-any
-  sbUser: any,
+  sbUser: ReturnType<typeof createClient>,
   userId: string,
   companyId: string,
   module: string,

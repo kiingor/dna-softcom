@@ -1,7 +1,9 @@
 // Tipos da tela Feedback Colaborador (Guardião da Cultura).
-// Espelham os DTOs da API legada api.softcom.cloud (camelCase, como chegam).
+// DTOs da API legada, com data de admissão complementada pelo cadastro do DNA.
 
 export type FeedbackStatus = "Pendente" | "Em dia" | "Em Atraso";
+export type FeedbackStatusFilter = "all" | FeedbackStatus;
+export type TempoDeCasaFilter = "all" | "ate-um-ano" | "mais-de-um-ano";
 
 /** Um colaborador no painel `/v1/feedbacks`. */
 export interface FeedbackColaborador {
@@ -12,6 +14,8 @@ export interface FeedbackColaborador {
   status: FeedbackStatus;
   setor?: string | null;
   empresa?: string | null;
+  /** Data de admissão do cadastro local, vinculada pelo ID da Agenda. */
+  dataAdmissao?: string | null;
 }
 
 /** KPIs agregados do painel (respeitam o filtro de Guardião). */
