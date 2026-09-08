@@ -93,6 +93,14 @@ como veículo nas folhas editáveis sem pagamentos/congelamento e na ficha fixa;
 não recalcula encargos. Seus identificadores são guardados em tabela privada
 para rollback. Ambas incluem o SQL de reversão comentado.
 
+Na VPS, o frontend é publicado pelo serviço `web` de `deploy/frontend.yml`, com
+as variáveis de `deploy/frontend.env` do servidor. A API de produção é
+`https://api.dnasoftcom.com`; a configuração local do antigo Supabase Cloud não
+deve ser usada nesse build. Preserve os ajustes de produção: salário retroativo
+vem após salário base na mescla; reaprovar uma folha com PIX ou pagamento manual
+mantém o congelamento; visualizar e executar pagamentos exigem as permissões
+explícitas dos respectivos módulos, inclusive para `admin_gc`.
+
 Validação: `npm test -- src/modules/payroll src/lib/payroll`. Os testes com
 PGlite executam as funções SQL e comparam os valores com o agrupamento do
 frontend, além de verificar reclassificação e rollback, sem acessar produção.

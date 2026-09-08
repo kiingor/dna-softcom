@@ -46,6 +46,7 @@ import type { Database } from "@/integrations/supabase/types";
  */
 export const MONTHLY_MERGED_TYPES = [
   "salario_base",
+  "salario_retroativo",
   "gratificacao",
   "hora_extra",
   "periculosidade",
@@ -54,7 +55,6 @@ export const MONTHLY_MERGED_TYPES = [
   "beneficio",
   "atestado",
   "auxilio_vale_transporte",
-  "salario_retroativo",
   "ferias",
 ] as const;
 

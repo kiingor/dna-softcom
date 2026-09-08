@@ -133,15 +133,32 @@ describe("pagamentos — paridade entre TypeScript e Postgres", () => {
     expect(lines).toHaveLength(0);
   });
 
-  it("recusa congelar antes da aprovação e regenerar após pagamento manual ou PIX", async () => {
+  it("mantém o retroativo na âncora mensal e desconta seus impostos sem salário base", async () => {
+    const retroactive = entry("salario_retroativo", 1000);
+    const lines = await compare([
+      entry("gratificacao", 300), retroactive, entry("inss", 100), entry("irpf", 50),
+    ]);
+    expect(lines[0].entryId).toBe(retroactive.id);
+    expect(lines[0].amount).toBe(1150);
+  });
+
+  it("recusa congelar antes da aprovação", async () => {
     await db.query("UPDATE payroll_periods SET status = 'open' WHERE id = $1", [periodId]);
     await expect(db.query("SELECT payroll_build_payable_lines($1)", [periodId])).rejects.toThrow("aprovada pela diretoria");
-    await db.query("UPDATE payroll_periods SET status = 'aprovado_diretoria' WHERE id = $1", [periodId]);
-    await db.query("INSERT INTO payroll_payments VALUES ($1, now())", [periodId]);
-    await expect(db.query("SELECT payroll_build_payable_lines($1)", [periodId])).rejects.toThrow("pagamentos registrados");
-    await db.exec("TRUNCATE payroll_payments");
-    await db.query("INSERT INTO payroll_pix_transfers VALUES ($1, 'settled')", [periodId]);
-    await expect(db.query("SELECT payroll_build_payable_lines($1)", [periodId])).rejects.toThrow("PIX");
+  });
+
+  it.each(["manual", "created", "settled"])("preserva o congelamento com pagamento %s sem bloquear a reaprovação", async (payment) => {
+    await compare([entry("salario_base", 3000), entry("carro_agregado", 800)]);
+    const before = (await db.query("SELECT * FROM payroll_payable_lines")).rows;
+    if (payment === "manual") {
+      await db.query("INSERT INTO payroll_payments VALUES ($1, now())", [periodId]);
+    } else {
+      await db.query("INSERT INTO payroll_pix_transfers VALUES ($1, $2)", [periodId, payment]);
+    }
+    await db.exec("UPDATE payroll_entries SET value = value + 100");
+    const { rows } = await db.query<{ rebuilt: number }>("SELECT payroll_build_payable_lines($1) AS rebuilt", [periodId]);
+    expect(rows[0].rebuilt).toBe(0);
+    expect((await db.query("SELECT * FROM payroll_payable_lines")).rows).toEqual(before);
   });
 
   it("reclassifica veículo nas folhas editáveis e na ficha, preservando histórico e custo setor", async () => {
@@ -185,8 +202,13 @@ describe("pagamentos — paridade entre TypeScript e Postgres", () => {
     await db.exec(rollback);
     const { rows } = await db.query<{ rank: number | null }>("SELECT payroll_monthly_merged_rank('carro_agregado') AS rank");
     expect(rows[0].rank).toBeNull();
+    expect((await db.query<{ rank: number }>("SELECT payroll_monthly_merged_rank('salario_retroativo') AS rank")).rows[0].rank).toBe(2);
     const frozen = await db.query<{ net_amount: string }>("SELECT net_amount FROM payroll_payable_lines");
     expect(Number(frozen.rows[0].net_amount)).toBe(3800);
+    await db.query("INSERT INTO payroll_pix_transfers VALUES ($1, 'settled')", [periodId]);
+    await db.exec("UPDATE payroll_entries SET value = value + 100");
+    expect((await db.query<{ rebuilt: number }>("SELECT payroll_build_payable_lines($1) AS rebuilt", [periodId])).rows[0].rebuilt).toBe(0);
+    expect((await db.query("SELECT net_amount FROM payroll_payable_lines")).rows).toEqual(frozen.rows);
     await db.exec(migration);
   });
 });

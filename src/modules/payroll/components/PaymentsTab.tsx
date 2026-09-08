@@ -78,10 +78,9 @@ export function PaymentsTab({
   // transformaria qualquer acesso total em pagador. O terceiro fator
   // (dispositivo 2FA ativo) é validado no servidor, onde não dá pra burlar.
   const { hasAnyRole, currentCompany } = useDashboard();
-  const execPermission = usePermissions("folha_pagamento_exec");
+  const execPermission = usePermissions("folha_pagamento_exec", true);
   const podePagar =
-    hasAnyRole(["admin_gc", "diretoria"]) &&
-    (execPermission.canCreate || execPermission.isAdmin);
+    hasAnyRole(["admin_gc", "diretoria"]) && execPermission.canCreate;
   // A folha congela em 'aprovado_diretoria': antes disso o valor ainda muda, e
   // pagar um número que pode mudar é assinar cheque em branco.
   const folhaLiberada =

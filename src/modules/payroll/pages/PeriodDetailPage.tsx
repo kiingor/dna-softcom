@@ -125,9 +125,9 @@ function PeriodDetailPageContent() {
   const { id } = useParams<{ id: string }>();
   const { currentCompany, hasAnyRole } = useDashboard();
   const canManage = hasAnyRole(["admin_gc", "gestor_gc"]);
-  const paymentsPermission = usePermissions("folha_pagamentos");
-  const canViewPayments = paymentsPermission.canView || paymentsPermission.isAdmin;
-  const canManagePayments = canManage && (paymentsPermission.canEdit || paymentsPermission.isAdmin);
+  const paymentsPermission = usePermissions("folha_pagamentos", true);
+  const canViewPayments = paymentsPermission.canView;
+  const canManagePayments = canManage && paymentsPermission.canEdit;
   // Aprovar como diretoria é gate de PAPEL, nunca de módulo: o toggle "Acesso
   // total" da tela de permissões concede todos os módulos, então gatear por
   // módulo transformaria qualquer usuário com acesso total em diretoria.

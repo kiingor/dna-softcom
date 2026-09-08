@@ -46,15 +46,15 @@ SET search_path = public
 AS $$
   SELECT CASE p_type
     WHEN 'salario_base'    THEN 1
-    WHEN 'gratificacao'    THEN 2
-    WHEN 'hora_extra'      THEN 3
-    WHEN 'periculosidade'  THEN 4
-    WHEN 'salario_familia' THEN 5
-    WHEN 'carro_agregado' THEN 6
-    WHEN 'beneficio' THEN 7
-    WHEN 'atestado' THEN 8
-    WHEN 'auxilio_vale_transporte' THEN 9
-    WHEN 'salario_retroativo' THEN 10
+    WHEN 'salario_retroativo' THEN 2
+    WHEN 'gratificacao'    THEN 3
+    WHEN 'hora_extra'      THEN 4
+    WHEN 'periculosidade'  THEN 5
+    WHEN 'salario_familia' THEN 6
+    WHEN 'carro_agregado' THEN 7
+    WHEN 'beneficio' THEN 8
+    WHEN 'atestado' THEN 9
+    WHEN 'auxilio_vale_transporte' THEN 10
     WHEN 'ferias' THEN 11
   END;
 $$;
@@ -132,17 +132,18 @@ BEGIN
     $q$ INTO v_pending USING p_period_id;
 
     IF v_pending > 0 THEN
-      RAISE EXCEPTION
-        'Essa folha já tem % transferência(s) PIX registrada(s) — os valores não podem ser recalculados', v_pending
-        USING ERRCODE = '22023';
+      -- Preserva o hotfix de produção 20260828120000: reaprovar pode mudar o
+      -- status, mas nunca apagar ou recalcular a origem de pagamentos vivos.
+      RAISE NOTICE 'Mantendo os valores congelados da folha com PIX registrado';
+      RETURN 0;
     END IF;
   END IF;
 
   -- Marcação manual também representa pagamento já realizado.
   IF EXISTS (SELECT 1 FROM public.payroll_payments
               WHERE period_id = p_period_id AND paid_at IS NOT NULL) THEN
-    RAISE EXCEPTION 'Essa folha já tem pagamentos registrados — os valores não podem ser recalculados'
-      USING ERRCODE = '22023';
+    RAISE NOTICE 'Mantendo os valores congelados da folha com pagamento registrado';
+    RETURN 0;
   END IF;
 
   DELETE FROM public.payroll_payable_lines WHERE period_id = p_period_id;
@@ -346,17 +347,19 @@ END;
 $fn$;
 
 COMMENT ON FUNCTION public.payroll_build_payable_lines(uuid) IS
-  'Congela salário, adicionais e férias em um pagamento; custo setor separado. Recusa regenerar folhas com PIX ou pagamento manual registrado.';
+  'Congela salário, adicionais e férias em um pagamento; custo setor separado. Preserva os valores de folhas com PIX ou pagamento manual registrado ao reaprovar.';
 COMMIT;
 
--- ROLLBACK: restaura as funções anteriores, sem alterar pagamentos congelados.
+-- ROLLBACK — restaura as funções vigentes na VPS, incluindo os hotfixes
+-- de salário retroativo (20260827120000) e reaprovação com PIX (20260828120000).
 -- BEGIN;
+--
 -- CREATE OR REPLACE FUNCTION public.payroll_entry_label(p_type text, p_description text)
--- RETURNS text
--- LANGUAGE sql
--- IMMUTABLE
--- SET search_path = public
--- AS $$
+--  RETURNS text
+--  LANGUAGE sql
+--  IMMUTABLE
+--  SET search_path TO 'public'
+-- AS $function$
 --   SELECT coalesce(
 --     p_description,
 --     CASE p_type
@@ -384,29 +387,30 @@ COMMIT;
 --     END,
 --     p_type
 --   );
--- $$;
+-- $function$;
 --
 -- CREATE OR REPLACE FUNCTION public.payroll_monthly_merged_rank(p_type text)
--- RETURNS integer
--- LANGUAGE sql
--- IMMUTABLE
--- SET search_path = public
--- AS $$
+--  RETURNS integer
+--  LANGUAGE sql
+--  IMMUTABLE
+--  SET search_path TO 'public'
+-- AS $function$
 --   SELECT CASE p_type
---     WHEN 'salario_base'    THEN 1
---     WHEN 'gratificacao'    THEN 2
---     WHEN 'hora_extra'      THEN 3
---     WHEN 'periculosidade'  THEN 4
---     WHEN 'salario_familia' THEN 5
+--     WHEN 'salario_base'       THEN 1
+--     WHEN 'salario_retroativo' THEN 2
+--     WHEN 'gratificacao'       THEN 3
+--     WHEN 'hora_extra'         THEN 4
+--     WHEN 'periculosidade'     THEN 5
+--     WHEN 'salario_familia'    THEN 6
 --   END;
--- $$;
+-- $function$;
 --
 -- CREATE OR REPLACE FUNCTION public.payroll_build_payable_lines(p_period_id uuid)
--- RETURNS integer
--- LANGUAGE plpgsql
--- SECURITY DEFINER
--- SET search_path = public
--- AS $fn$
+--  RETURNS integer
+--  LANGUAGE plpgsql
+--  SECURITY DEFINER
+--  SET search_path TO 'public'
+-- AS $function$
 -- DECLARE
 --   v_company    uuid;
 --   v_ref        date;
@@ -474,9 +478,15 @@ COMMIT;
 --     $q$ INTO v_pending USING p_period_id;
 --
 --     IF v_pending > 0 THEN
---       RAISE EXCEPTION
---         'Essa folha já tem % transferência(s) PIX registrada(s) — os valores não podem ser recalculados', v_pending
---         USING ERRCODE = '22023';
+--       -- Já há PIX vivo no período. Antes isto ERRAVA (RAISE) e, como o freeze
+--       -- roda no trigger da transição de status, travava a PRÓPRIA aprovação:
+--       -- devolver a folha pra rascunho e reaprovar ficava impossível quando já
+--       -- havia pagamento. Agora só PULA a regeração: as linhas congeladas ficam
+--       -- INTACTAS (nenhum valor recalculado — o dinheiro já saiu) e a folha muda
+--       -- de status livremente. Regerar valor de quem já tem PIX continua vetado
+--       -- por design; o que sai é o veto sobre a TRANSIÇÃO.
+--       RAISE NOTICE 'Folha % já tem % PIX vivo(s): mantendo os valores congelados, sem regerar.', p_period_id, v_pending;
+--       RETURN 0;
 --     END IF;
 --   END IF;
 --
@@ -732,5 +742,6 @@ COMMIT;
 --   GET DIAGNOSTICS v_rows = ROW_COUNT;
 --   RETURN v_rows;
 -- END;
--- $fn$;
+-- $function$;
+--
 -- COMMIT;
