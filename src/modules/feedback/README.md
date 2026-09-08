@@ -31,6 +31,20 @@ npx eslint src/modules/feedback supabase/functions/feedbacks/index.ts __tests__/
 npm run build
 ```
 
-Publicar a Edge Function `feedbacks` junto com o frontend para disponibilizar
+Publicar a função `feedbacks` junto com o frontend para disponibilizar
 `dataAdmissao` no painel. A função continua compatível com o frontend anterior.
 Não há migration.
+
+A produção atual fica na VPS `vm-squad-ia-02`: frontend em `dnasoftcom.com`
+e API em `api.dnasoftcom.com`. O deploy automático da Vercel é um ambiente
+separado e não atualiza essa VPS.
+
+- A função fica em `/root/supabase/volumes/functions/feedbacks/index.ts`.
+  Após atualizar o arquivo, reiniciar `supabase-edge-functions` e verificar
+  o boot com uma requisição OPTIONS à função.
+- O frontend usa o código de `/root/dna-app` e o Compose
+  `deploy/frontend.yml`, com a configuração existente em `deploy/frontend.env`.
+  Reconstruir a imagem com a URL da API da VPS e atualizar apenas `web`.
+- Manter backup dos arquivos e da imagem anterior antes da publicação.
+  Os demais serviços, segredos e o dispatcher de funções mantêm a configuração
+  existente no servidor.
