@@ -21,6 +21,7 @@ import {
 } from "@phosphor-icons/react";
 import { toast } from "sonner";
 import { formatCurrency } from "@/lib/formatters";
+import { fetchAllRows } from "@/lib/fetchAllRows";
 import { cn } from "@/lib/utils";
 import { Segmented } from "./Segmented";
 import {
@@ -30,6 +31,8 @@ import {
 } from "../types";
 import {
   buildPaymentLines,
+  paymentLineFromSnapshot,
+  type FrozenPaymentLine,
   type PaymentLineComponent,
   type PaymentLineDiscount,
 } from "../lib/buildPaymentLines";
@@ -151,14 +154,28 @@ export function PaymentsTab({
 
   const [pagando, setPagando] = useState<string | null>(null);
 
+  // Folhas aprovadas usam o valor que o servidor congelou. Isso preserva os
+  // pagamentos anteriores quando a regra de agrupamento muda.
+  const { data: frozenLines = [], isLoading: loadingFrozen, isError: frozenError } = useQuery({
+    queryKey: ["payroll-payable-lines", periodId, periodStatus],
+    queryFn: () => fetchAllRows<FrozenPaymentLine>(() => supabase
+      .from("payroll_payable_lines")
+      .select("entry_id, collaborator_id, kind, gross, inss, irpf, other_deductions, net_amount, components, discounts, payee_name, payee_document, payee_pix_key")
+      .eq("period_id", periodId)
+      .order("entry_id")),
+    enabled: !!periodId && folhaLiberada,
+  });
+
   // A fórmula do líquido vive em ../lib/buildPaymentLines.ts — extraída daqui
   // porque o servidor precisa da MESMA conta pra mandar o valor ao banco, e
   // porque as regras (estorno, partição de férias, mescla, clamp) só existiam
   // como comentário, sem teste. Aqui sobrou só a adaptação para as formas que
   // este componente já renderiza.
   const { payableEntries, taxBreakdownByEntry } = useMemo(() => {
-    const lines = buildPaymentLines(entries);
+    const useFrozen = folhaLiberada && frozenLines.length > 0;
+    const lines = useFrozen ? frozenLines.map(paymentLineFromSnapshot) : buildPaymentLines(entries);
     const sourceById = new Map(entries.map((e) => [e.id, e]));
+    const snapshotById = new Map(frozenLines.map((line) => [line.entry_id, line]));
 
     interface EntryBreakdown {
       inss: number;
@@ -176,18 +193,19 @@ export function PaymentsTab({
       const source = sourceById.get(line.entryId);
       if (!source) continue;
 
-      if (line.kind === "avulso") {
-        // Linha própria (bonificação, carro agregado, benefício pagável…):
-        // vai como está, sem imposto nem desconto aplicados.
-        adjustedEntries.push(source);
-      } else {
-        adjustedEntries.push({
-          ...source,
-          ...(line.kind === "ferias" ? { type: "ferias" } : {}),
-          description: line.description,
-          value: line.amount,
-        } as PayrollEntryWithCollaborator);
-      }
+      const snapshot = useFrozen ? snapshotById.get(line.entryId) : undefined;
+      adjustedEntries.push({
+        ...source,
+        ...(line.kind === "ferias" ? { type: "ferias" } : {}),
+        description: line.description,
+        value: line.amount,
+        collaborator: snapshot && source.collaborator ? {
+          ...source.collaborator,
+          name: snapshot.payee_name,
+          cpf: snapshot.payee_document,
+          pix_key: snapshot.payee_pix_key,
+        } : source.collaborator,
+      } as PayrollEntryWithCollaborator);
 
       breakdownByEntry.set(line.entryId, {
         inss: line.inss,
@@ -199,7 +217,7 @@ export function PaymentsTab({
     }
 
     return { payableEntries: adjustedEntries, taxBreakdownByEntry: breakdownByEntry };
-  }, [entries]);
+  }, [entries, folhaLiberada, frozenLines]);
 
   const { data: payments = [], isLoading } = useQuery({
     queryKey: ["payroll-payments", periodId],
@@ -356,12 +374,16 @@ export function PaymentsTab({
       return new Set([...prev, ...selectableIds]);
     });
 
-  if (isLoading) {
+  if (isLoading || (folhaLiberada && loadingFrozen)) {
     return (
       <div className="flex items-center justify-center py-12">
         <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
       </div>
     );
+  }
+
+  if (folhaLiberada && frozenError) {
+    return <p className="py-8 text-center text-sm text-destructive">Não foi possível carregar os pagamentos aprovados. Atualize a página para tentar novamente.</p>;
   }
 
   if (payableEntries.length === 0) {

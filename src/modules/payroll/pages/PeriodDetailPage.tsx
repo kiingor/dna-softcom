@@ -319,7 +319,7 @@ function PeriodDetailPageContent() {
   const lancamentoEntries = useMemo(
     () =>
       filteredEntries.filter((e) => {
-        if (e.type === "bonificacao") return false;
+        if (e.type === "bonificacao" && !e.external_id?.startsWith("ferias-")) return false;
         // Filtro de cargo (multi-seleção): mantém só os colaboradores cujo
         // cargo está entre os selecionados. Afeta KPIs e lista desta aba.
         if (positionFilter.size > 0) {

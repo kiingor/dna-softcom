@@ -3,6 +3,7 @@ import {
   MANUAL_DEBIT_TYPES,
   ENTRY_TYPE_LABELS,
 } from "../types";
+import type { Database } from "@/integrations/supabase/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LINHAS DE PAGAMENTO — quanto cada colaborador recebe, e por quê.
@@ -30,16 +31,16 @@ import {
  * Pagamento mensal — o que entra na MESMA linha (mesmo PIX).
  *
  * Regra de produto: o colaborador recebe UM pagamento com salário base,
- * gratificações, hora extra, periculosidade e salário-família juntos.
+ * gratificações, veículo, hora extra, periculosidade, salário-família e demais
+ * proventos pagáveis. Férias programadas também compõem esse pagamento.
  *
  * É também o recorte correto pro líquido: o INSS/IRPF do mês incide sobre essa
  * base (hora extra e periculosidade integram a base — ver
  * INSS_TAXABLE_EARNING_TYPES em ../types), então o imposto descontado aqui bate
  * com o contracheque em vez de sair todo do salário base.
  *
- * FORA daqui, cada um em sua linha: bonificação (custo de setor) e carro
- * agregado — a diretoria confere esses à parte. Benefício pagável, atestado,
- * VT e salário retroativo também seguem em linha própria.
+ * Apenas bonificação (custo de setor) fica em linha própria. Os lançamentos
+ * do recibo de férias mantêm seus impostos já calculados, sem recalcular bases.
  *
  * A ordem do array é a ordem de exibição no popup de detalhe.
  */
@@ -49,6 +50,12 @@ export const MONTHLY_MERGED_TYPES = [
   "hora_extra",
   "periculosidade",
   "salario_familia",
+  "carro_agregado",
+  "beneficio",
+  "atestado",
+  "auxilio_vale_transporte",
+  "salario_retroativo",
+  "ferias",
 ] as const;
 
 const MONTHLY_MERGED_SET = new Set<string>(MONTHLY_MERGED_TYPES);
@@ -110,6 +117,32 @@ export interface PaymentLine {
   discounts: PaymentLineDiscount[];
 }
 
+export type FrozenPaymentLine = Pick<Database["public"]["Tables"]["payroll_payable_lines"]["Row"],
+  "entry_id" | "collaborator_id" | "kind" | "gross" | "inss" | "irpf" |
+  "other_deductions" | "net_amount" | "components" | "discounts" |
+  "payee_name" | "payee_document" | "payee_pix_key"
+>;
+
+/** Adapta o pagamento aprovado sem recalcular valores ou reagrupar suas linhas. */
+export function paymentLineFromSnapshot(row: FrozenPaymentLine): PaymentLine {
+  const components = row.components as unknown as PaymentLineComponent[];
+  return {
+    entryId: row.entry_id,
+    collaboratorId: row.collaborator_id,
+    collaboratorName: row.payee_name,
+    kind: row.kind as PaymentLine["kind"],
+    types: row.kind === "ferias" ? ["ferias"] : [...new Set(components.map((component) => component.type))],
+    description: row.kind === "ferias" ? "Pagamento de Férias" : components.map((component) => component.label).join(" · "),
+    gross: Number(row.gross),
+    inss: Number(row.inss),
+    irpf: Number(row.irpf),
+    otherDeductions: Number(row.other_deductions),
+    amount: Number(row.net_amount),
+    components,
+    discounts: row.discounts as unknown as PaymentLineDiscount[],
+  };
+}
+
 const num = (v: number | string): number => Number(v);
 
 /** Lançamento veio do fluxo de férias? (`external_id` = `ferias-<reqId>-<kind>`) */
@@ -149,9 +182,8 @@ export function buildPaymentLines(entries: PayableEntryInput[]): PaymentLine[] {
     return num(e.value) > 0;
   });
 
-  // INSS/IRPF por colaborador, separando o do mês do de férias. O cheque de
-  // férias é um pagamento distinto (CLT art. 145, D-2 do gozo) e carrega os
-  // próprios impostos, marcados com o mesmo prefixo `ferias-`.
+  // Os impostos de férias já foram calculados no recibo. Mantemos os subtotais
+  // separados aqui para descontá-los uma única vez ao consolidar o pagamento.
   interface CollabTaxes {
     inss: number;
     irpf: number;
@@ -194,22 +226,29 @@ export function buildPaymentLines(entries: PayableEntryInput[]): PaymentLine[] {
     const vacEntries = list.filter(isVacEntry);
     const monthlyList = list.filter((e) => !isVacEntry(e));
 
-    const taxes = monthlyTaxes.get(collabId) ?? { inss: 0, irpf: 0 };
-    const collabDiscounts = discountsByCollab.get(collabId) ?? [];
-    const totalDiscount = collabDiscounts.reduce((s, d) => s + d.value, 0);
-
     // ─── Mensal ──────────────────────────────────────────────────────────
     // Ordena pela ordem de MONTHLY_MERGED_TYPES pra o popup sair sempre na
     // mesma sequência (salário primeiro, depois os adicionais).
-    const merged = MONTHLY_MERGED_TYPES.flatMap((t) =>
+    const monthlyMerged = MONTHLY_MERGED_TYPES.flatMap((t) =>
       monthlyList.filter((e) => e.type === t),
     );
+    const merged = [...monthlyMerged, ...vacEntries];
     const others = monthlyList.filter((e) => !MONTHLY_MERGED_SET.has(e.type));
 
     if (merged.length > 0) {
       // Âncora: o salário base quando existe — o id dele é o mais estável entre
       // recálculos, então a marcação de "pago" sobrevive.
-      const primary = merged.find((e) => e.type === "salario_base") ?? merged[0];
+      const primary = monthlyMerged.find((e) => e.type === "salario_base")
+        ?? monthlyMerged[0]
+        ?? vacEntries.find((e) => e.type === "ferias")
+        ?? vacEntries[0];
+      const monthly = monthlyMerged.length > 0;
+      const taxes = monthly ? monthlyTaxes.get(collabId) : undefined;
+      const vacTaxes = vacEntries.length > 0 ? vacationTaxes.get(collabId) : undefined;
+      const inss = (taxes?.inss ?? 0) + (vacTaxes?.inss ?? 0);
+      const irpf = (taxes?.irpf ?? 0) + (vacTaxes?.irpf ?? 0);
+      const collabDiscounts = monthly ? discountsByCollab.get(collabId) ?? [] : [];
+      const totalDiscount = collabDiscounts.reduce((s, d) => s + d.value, 0);
       const components: PaymentLineComponent[] = merged.map((e) => ({
         entryId: e.id,
         type: e.type,
@@ -219,7 +258,7 @@ export function buildPaymentLines(entries: PayableEntryInput[]): PaymentLine[] {
         value: num(e.value),
       }));
       const gross = components.reduce((s, c) => s + c.value, 0);
-      const amount = gross - taxes.inss - taxes.irpf - totalDiscount;
+      const amount = gross - inss - irpf - totalDiscount;
 
       // Líquido não positivo não vira pagamento. A tela de aprovação mostra
       // essa pessoa (ver buildApprovalSummary), aqui ela some de propósito —
@@ -229,14 +268,14 @@ export function buildPaymentLines(entries: PayableEntryInput[]): PaymentLine[] {
           entryId: primary.id,
           collaboratorId: collabId,
           collaboratorName,
-          kind: "mensal",
-          types: MONTHLY_MERGED_TYPES.filter((t) =>
-            merged.some((e) => e.type === t),
-          ),
-          description: components.map((c) => c.label).join(" · "),
+          kind: monthly ? "mensal" : "ferias",
+          types: monthly
+            ? [...new Set([...monthlyMerged.map((e) => e.type), ...(vacEntries.length ? ["ferias"] : [])])]
+            : ["ferias"],
+          description: monthly ? components.map((c) => c.label).join(" · ") : "Pagamento de Férias",
           gross,
-          inss: taxes.inss,
-          irpf: taxes.irpf,
+          inss,
+          irpf,
           otherDeductions: totalDiscount,
           amount,
           components,
@@ -246,9 +285,8 @@ export function buildPaymentLines(entries: PayableEntryInput[]): PaymentLine[] {
     }
 
     // ─── Avulsos ─────────────────────────────────────────────────────────
-    // Fora da mescla (bonificação/custo de setor, carro agregado, benefício
-    // pagável, atestado, VT, salário retroativo): cada um em sua linha, sem
-    // imposto e sem desconto — os do mês já foram consumidos pela linha mensal.
+    // Custo de setor fica separado. Impostos e descontos já foram consumidos
+    // pelo pagamento consolidado do colaborador.
     for (const e of others) {
       const value = num(e.value);
       lines.push({
@@ -270,43 +308,6 @@ export function buildPaymentLines(entries: PayableEntryInput[]): PaymentLine[] {
       });
     }
 
-    // ─── Férias ──────────────────────────────────────────────────────────
-    // Todos os `ferias-*` numa linha só: férias + 1/3 + gratificação s/férias,
-    // menos INSS e IRRF s/férias. Cheque distinto do mensal.
-    if (vacEntries.length > 0) {
-      // Âncora: prefere o provento principal (`ferias`), senão a primeira.
-      const primary = vacEntries.find((e) => e.type === "ferias") ?? vacEntries[0];
-      const vacTax = vacationTaxes.get(collabId) ?? { inss: 0, irpf: 0 };
-
-      const components: PaymentLineComponent[] = vacEntries.map((e) => ({
-        entryId: e.id,
-        type: e.type,
-        label: labelOf(e),
-        value: num(e.value),
-      }));
-      const gross = components.reduce((s, c) => s + c.value, 0);
-      const amount = gross - vacTax.inss - vacTax.irpf;
-
-      if (amount > 0) {
-        lines.push({
-          entryId: primary.id,
-          collaboratorId: collabId,
-          collaboratorName,
-          kind: "ferias",
-          // Férias se apresenta como um pagamento próprio: 1 tag só, o detalhe
-          // (1/3, gratificação s/férias) fica no popup.
-          types: ["ferias"],
-          description: "Pagamento de Férias",
-          gross,
-          inss: vacTax.inss,
-          irpf: vacTax.irpf,
-          otherDeductions: 0,
-          amount,
-          components,
-          discounts: [],
-        });
-      }
-    }
   }
 
   // Ordem estável: por nome do colaborador, depois pela descrição da linha.
