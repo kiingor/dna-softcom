@@ -1,6 +1,14 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
+import { formatCurrency } from "@/lib/formatters";
+import { isDeduction } from "@/modules/payroll/types";
+import {
+  calculatePayrollReportTotals,
+  getPayrollReportTypeValue,
+  PAYROLL_REPORT_TYPE_LABELS as typeLabels,
+  type StorePayrollSummary,
+} from "@/modules/payroll/lib/buildStorePayrollSummary";
 
 interface PayrollEntry {
   collaborator_name: string;
@@ -17,28 +25,26 @@ interface ExportData {
   totals: { type: string; total: number }[];
   grandTotal: number;
   logoUrl?: string;
+  storeSummary?: StorePayrollSummary;
 }
 
-const typeLabels: Record<string, string> = {
-  salario_base: "Salário base",
-  beneficio: "Benefício",
-  hora_extra: "Hora extra",
-  falta: "Falta",
-  atestado: "Atestado",
-  adiantamento: "Adiantamento",
-  bonificacao: "Bonificação",
-  carro_agregado: "Carro Agregado",
-  desconto: "Desconto",
-  // Legacy (orphan na enum, ainda renderizam se houver linhas antigas)
-  custo: "Custo",
-  despesa: "Despesa",
-  inss: "INSS",
-  fgts: "FGTS",
-  irpf: "IRPF",
-};
-
-const deductionTypes = ["desconto", "falta", "adiantamento", "inss", "irpf", "despesa", "custo"];
-const earningsTypes = ["salario_base", "hora_extra", "beneficio", "bonificacao", "carro_agregado", "atestado"];
+function storeSummaryTable(summary: StorePayrollSummary) {
+  return {
+    head: ["PDV", ...summary.columns.map((column) => column.label), "Líquido", "Custo total"],
+    body: summary.rows.map((row) => [
+      row.storeName,
+      ...summary.columns.map((column) => getPayrollReportTypeValue(row, column.type)),
+      row.net,
+      row.companyCost,
+    ]),
+    foot: [
+      "Total geral",
+      ...summary.columns.map((column) => getPayrollReportTypeValue(summary.totals, column.type)),
+      summary.totals.net,
+      summary.totals.companyCost,
+    ],
+  };
+}
 
 // Helper to load image as base64
 const loadImageAsBase64 = async (url: string): Promise<string | null> => {
@@ -60,12 +66,12 @@ const formatValueWithSign = (value: number, type: string): string => {
   const formatted = value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
   // FGTS é custo do empregador — não desconta do colaborador, exibe sem sinal.
   if (type === "fgts") return formatted;
-  if (deductionTypes.includes(type)) return `- ${formatted}`;
+  if (isDeduction(type)) return `- ${formatted}`;
   return `+ ${formatted}`;
 };
 
 export const exportToPDF = async (data: ExportData) => {
-  const doc = new jsPDF();
+  const doc = new jsPDF({ orientation: data.storeSummary ? "landscape" : "portrait" });
   const pageWidth = doc.internal.pageSize.getWidth();
   const margin = 14;
 
@@ -123,12 +129,38 @@ export const exportToPDF = async (data: ExportData) => {
     grouped.get(name)!.push(entry);
   });
 
-  let currentY = 60;
+  let currentY = y;
+
+  if (data.storeSummary?.rows.length) {
+    doc.setFontSize(10);
+    doc.text("Resumo por PDV e tipo de pagamento", margin, currentY);
+    currentY += 5;
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "normal");
+    doc.text("Descontos com sinal negativo. Custo total = proventos + FGTS.", margin, currentY);
+
+    const table = storeSummaryTable(data.storeSummary);
+    const formatCell = (cell: string | number) => typeof cell === "number" ? formatCurrency(cell) : cell;
+    autoTable(doc, {
+      startY: currentY + 4,
+      head: [table.head],
+      body: table.body.map((row) => row.map(formatCell)),
+      foot: [table.foot.map(formatCell)],
+      theme: "grid",
+      styles: { fontSize: 8, cellPadding: 3, cellWidth: "wrap", halign: "right" },
+      columnStyles: { 0: { halign: "left", cellWidth: 45 } },
+      headStyles: { fillColor: [45, 42, 39] },
+      footStyles: { fillColor: [245, 245, 244], textColor: [45, 42, 39] },
+      showFoot: "lastPage",
+      horizontalPageBreak: true,
+      horizontalPageBreakRepeat: 0,
+    });
+    doc.addPage();
+    currentY = 20;
+  }
 
   // Per-collaborator sections
-  let grandEarnings = 0;
-  let grandDeductions = 0;
-  let grandFgts = 0;
+  const grandTotals = calculatePayrollReportTotals(data.entries);
 
   for (const [collabName, collabEntries] of grouped) {
     // Check page space
@@ -174,23 +206,10 @@ export const exportToPDF = async (data: ExportData) => {
       },
     });
 
-    currentY = (doc as any).lastAutoTable.finalY + 3;
+    currentY = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 3;
 
     // Calculate collaborator totals
-    let earnings = 0;
-    let deductions = 0;
-    let fgts = 0;
-    collabEntries.forEach((e) => {
-      const v = Number(e.value);
-      if (e.type === "fgts") fgts += v;
-      else if (deductionTypes.includes(e.type)) deductions += v;
-      else earnings += v;
-    });
-    const net = earnings - deductions;
-
-    grandEarnings += earnings;
-    grandDeductions += deductions;
-    grandFgts += fgts;
+    const { earnings, deductions, fgts, net } = calculatePayrollReportTotals(collabEntries);
 
     // Collaborator summary line
     doc.setFontSize(8);
@@ -206,9 +225,6 @@ export const exportToPDF = async (data: ExportData) => {
     currentY = 20;
   }
 
-  const grandNet = grandEarnings - grandDeductions;
-  const grandCost = grandNet + grandFgts;
-
   doc.setFontSize(12);
   doc.setFont("helvetica", "bold");
   doc.text("TOTAL GERAL", 14, currentY);
@@ -218,11 +234,11 @@ export const exportToPDF = async (data: ExportData) => {
     startY: currentY,
     head: [["Proventos", "Descontos", "Líquido", "FGTS", "Custo Total"]],
     body: [[
-      `R$ ${grandEarnings.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`,
-      `R$ ${grandDeductions.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`,
-      `R$ ${grandNet.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`,
-      `R$ ${grandFgts.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`,
-      `R$ ${grandCost.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`,
+      formatCurrency(grandTotals.earnings),
+      formatCurrency(grandTotals.deductions),
+      formatCurrency(grandTotals.net),
+      formatCurrency(grandTotals.fgts),
+      formatCurrency(grandTotals.companyCost),
     ]],
     theme: "grid",
     headStyles: { fillColor: [99, 102, 241] },
@@ -244,6 +260,28 @@ export const exportToPDF = async (data: ExportData) => {
 export const exportToExcel = (data: ExportData) => {
   // Create workbook
   const wb = XLSX.utils.book_new();
+
+  if (data.storeSummary) {
+    const table = storeSummaryTable(data.storeSummary);
+    const summarySheet = XLSX.utils.aoa_to_sheet([
+      ["Resumo por PDV e tipo de pagamento"],
+      [`Empresa: ${data.companyName}`],
+      [`Competência: ${data.period}`],
+      ["Descontos com sinal negativo. Custo total = proventos + FGTS."],
+      [],
+      table.head,
+      ...table.body,
+      table.foot,
+    ]);
+    summarySheet["!cols"] = table.head.map((_, index) => ({ wch: index === 0 ? 30 : 22 }));
+    for (let row = 6; row < 7 + table.body.length; row++) {
+      for (let column = 1; column < table.head.length; column++) {
+        const cell = summarySheet[XLSX.utils.encode_cell({ r: row, c: column })];
+        if (cell) cell.z = '"R$" #,##0.00;[Red]-"R$" #,##0.00';
+      }
+    }
+    XLSX.utils.book_append_sheet(wb, summarySheet, "Resumo por PDV");
+  }
 
   // Main data sheet
   const wsData = [
@@ -278,10 +316,12 @@ export const exportToExcel = (data: ExportData) => {
   XLSX.writeFile(wb, fileName);
 };
 
-export const groupEntriesByCollaborator = (
-  entries: any[]
-): Map<string, { collaborator: any; entries: any[]; total: number }> => {
-  const grouped = new Map<string, { collaborator: any; entries: any[]; total: number }>();
+export const groupEntriesByCollaborator = <T extends {
+  collaborator_id: string;
+  collaborator?: { name: string } | null;
+  value: number;
+}>(entries: T[]) => {
+  const grouped = new Map<string, { collaborator: { id: string; name: string }; entries: T[]; total: number }>();
 
   entries.forEach((entry) => {
     const collabId = entry.collaborator_id;

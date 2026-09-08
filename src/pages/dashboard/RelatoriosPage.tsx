@@ -44,23 +44,15 @@ import { toast } from "sonner";
 import PermissionGuard from "@/components/dashboard/PermissionGuard";
 import { exportToPDF, exportToExcel, groupEntriesByCollaborator } from "@/lib/exportUtils";
 import { formatCurrency, getMonthName } from "@/lib/formatters";
- import { generatePayslipPDF, convertEntriesToPayslipData } from "@/lib/payslipPdfGenerator";
-
-const typeLabels: Record<string, string> = {
-  salario: "Salário",
-  vale: "Vale",
-  custo: "Custo",
-  despesa: "Despesa",
-  adicional: "Adicional",
-   inss: "INSS",
-   fgts: "FGTS",
-   irpf: "IRPF",
-};
-
-// Types that are earnings (proventos)
-const earningsTypes = ["salario_base", "hora_extra", "beneficio", "bonificacao", "atestado"];
-// Types that are deductions (descontos)
-const deductionTypes = ["desconto", "falta", "adiantamento", "inss", "irpf", "despesa", "custo"];
+import { generatePayslipPDF, convertEntriesToPayslipData } from "@/lib/payslipPdfGenerator";
+import { StorePayrollSummaryTable } from "@/modules/payroll/components/StorePayrollSummaryTable";
+import { isDeduction } from "@/modules/payroll/types";
+import {
+  buildStorePayrollSummary,
+  calculatePayrollReportTotals,
+  getPayrollReportStoreId,
+  PAYROLL_REPORT_TYPE_LABELS as typeLabels,
+} from "@/modules/payroll/lib/buildStorePayrollSummary";
 
 const RelatoriosPage = () => {
   const { currentCompany, hasAnyRole } = useDashboard();
@@ -114,12 +106,12 @@ const RelatoriosPage = () => {
    });
 
   // Fetch payroll entries
-  const { data: entries = [], isLoading } = useQuery({
+  const { data: entries = [], isLoading, isError: entriesError, refetch: refetchEntries } = useQuery({
     queryKey: ["payroll-entries-report", currentCompany?.id, selectedMonth, selectedYear],
     queryFn: async () => {
       if (!currentCompany?.id) return [];
       // Pagina: passa de 1000 lançamentos/mês e o PostgREST corta nesse limite.
-      return await fetchAllRows<any>(() =>
+      return await fetchAllRows(() =>
         supabase
           .from("payroll_entries")
           .select(`
@@ -129,7 +121,8 @@ const RelatoriosPage = () => {
           .eq("company_id", currentCompany.id)
           .eq("month", selectedMonth)
           .eq("year", selectedYear)
-          .order("created_at", { ascending: false }),
+          .order("created_at", { ascending: false })
+          .order("id"),
       );
     },
     enabled: !!currentCompany?.id,
@@ -154,17 +147,16 @@ const RelatoriosPage = () => {
   });
 
   // Fetch stores for filter
-  const { data: stores = [] } = useQuery({
+  const { data: stores = [], isLoading: storesLoading, isError: storesError, refetch: refetchStores } = useQuery({
     queryKey: ["stores-filter", currentCompany?.id],
     queryFn: async () => {
       if (!currentCompany?.id) return [];
-      const { data, error } = await supabase
+      return await fetchAllRows(() => supabase
         .from("stores")
         .select("id, store_name")
         .eq("company_id", currentCompany.id)
-        .order("store_name");
-      if (error) throw error;
-      return data;
+        .order("store_name")
+        .order("id"));
     },
     enabled: !!currentCompany?.id,
   });
@@ -173,10 +165,10 @@ const RelatoriosPage = () => {
   const filteredEntries = useMemo(() => {
     let result = entries;
     if (collaboratorFilter !== "all") {
-      result = result.filter((e: any) => e.collaborator_id === collaboratorFilter);
+      result = result.filter((e) => e.collaborator_id === collaboratorFilter);
     }
     if (storeFilter !== "all") {
-      result = result.filter((e: any) => e.collaborator?.store_id === storeFilter);
+      result = result.filter((e) => (getPayrollReportStoreId(e) ?? "without-store") === storeFilter);
     }
     return result;
   }, [entries, collaboratorFilter, storeFilter]);
@@ -186,47 +178,11 @@ const RelatoriosPage = () => {
     return groupEntriesByCollaborator(filteredEntries);
   }, [filteredEntries]);
 
-  // Calculate collaborator-level totals
-  const calculateCollaboratorTotals = (collabEntries: any[]) => {
-    let earnings = 0;
-    let deductions = 0;
-    let fgts = 0;
-
-    collabEntries.forEach((entry: any) => {
-      const value = Number(entry.value);
-      if (entry.type === "fgts") {
-        fgts += value;
-      } else if (earningsTypes.includes(entry.type)) {
-        earnings += value;
-      } else if (deductionTypes.includes(entry.type)) {
-        deductions += value;
-      }
-    });
-
-    return { earnings, deductions, fgts, net: earnings - deductions };
-  };
-
-  // Calculate grand totals
-  const grandTotals = useMemo(() => {
-    let totalEarnings = 0;
-    let totalDeductions = 0;
-    let totalFgts = 0;
-
-    Array.from(groupedData.values()).forEach((data) => {
-      const totals = calculateCollaboratorTotals(data.entries);
-      totalEarnings += totals.earnings;
-      totalDeductions += totals.deductions;
-      totalFgts += totals.fgts;
-    });
-
-    return {
-      earnings: totalEarnings,
-      deductions: totalDeductions,
-      fgts: totalFgts,
-      net: totalEarnings - totalDeductions,
-      companyCost: totalEarnings - totalDeductions + totalFgts,
-    };
-  }, [groupedData]);
+  const storeSummary = useMemo(() => buildStorePayrollSummary(filteredEntries, stores), [filteredEntries, stores]);
+  const grandTotals = storeSummary.totals;
+  const reportLoading = isLoading || storesLoading;
+  const reportError = entriesError || storesError;
+  const exportDisabled = filteredEntries.length === 0 || reportLoading || reportError;
 
   // Period navigation
   const navigatePeriod = (direction: "prev" | "next") => {
@@ -248,31 +204,31 @@ const RelatoriosPage = () => {
   };
 
   // Export handlers
-  const handleExportPDF = () => {
+  const handleExportPDF = async () => {
     if (!currentCompany) return;
     
     const exportData = {
       companyName: currentCompany.company_name,
       companyCnpj: companyDetails?.cnpj || undefined,
       period: `${getMonthName(selectedMonth)}/${selectedYear}`,
-      entries: filteredEntries.map((e: any) => ({
+      entries: filteredEntries.map((e) => ({
         collaborator_name: e.collaborator?.name || "Sem colaborador",
         type: e.type,
         value: Number(e.value),
         description: e.description,
       })),
-      totals: Object.entries(
-        filteredEntries.reduce((acc: Record<string, number>, e: any) => {
-          acc[e.type] = (acc[e.type] || 0) + Number(e.value);
-          return acc;
-        }, {})
-      ).map(([type, total]) => ({ type, total })),
+      totals: Object.entries(grandTotals.valuesByType).map(([type, total]) => ({ type, total })),
       grandTotal: grandTotals.net,
+      storeSummary,
       logoUrl: companyDetails?.logo_url || undefined,
     };
     
-    exportToPDF(exportData);
-    toast.success("PDF exportado com sucesso!");
+    try {
+      await exportToPDF(exportData);
+      toast.success("PDF exportado com sucesso!");
+    } catch {
+      toast.error("Não foi possível exportar o PDF. Tente novamente.");
+    }
   };
 
   const handleExportExcel = () => {
@@ -281,19 +237,15 @@ const RelatoriosPage = () => {
     const exportData = {
       companyName: currentCompany.company_name,
       period: `${getMonthName(selectedMonth)}/${selectedYear}`,
-      entries: filteredEntries.map((e: any) => ({
+      entries: filteredEntries.map((e) => ({
         collaborator_name: e.collaborator?.name || "Sem colaborador",
         type: e.type,
         value: Number(e.value),
         description: e.description,
       })),
-      totals: Object.entries(
-        filteredEntries.reduce((acc: Record<string, number>, e: any) => {
-          acc[e.type] = (acc[e.type] || 0) + Number(e.value);
-          return acc;
-        }, {})
-      ).map(([type, total]) => ({ type, total })),
+      totals: Object.entries(grandTotals.valuesByType).map(([type, total]) => ({ type, total })),
       grandTotal: grandTotals.net,
+      storeSummary,
     };
     
     exportToExcel(exportData);
@@ -329,7 +281,7 @@ const RelatoriosPage = () => {
          cnpj: companyDetails.cnpj,
          logoUrl: companyDetails.logo_url,
        },
-       collaboratorDetails as any,
+       collaboratorDetails,
        selectedMonth,
        selectedYear
      );
@@ -342,20 +294,20 @@ const RelatoriosPage = () => {
 
   return (
     <PermissionGuard module="relatorios">
-      <div className="space-y-6">
+      <div className="min-w-0 space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-muted-foreground">
               Visualize e exporte relatórios da folha de pagamento
             </p>
           </div>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={handleExportExcel} disabled={filteredEntries.length === 0}>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={handleExportExcel} disabled={exportDisabled}>
               <FileSpreadsheet className="w-4 h-4 mr-2" />
               Excel
             </Button>
-            <Button variant="outline" onClick={handleExportPDF} disabled={filteredEntries.length === 0}>
+            <Button variant="outline" onClick={handleExportPDF} disabled={exportDisabled}>
               <FileText className="w-4 h-4 mr-2" />
               PDF
             </Button>
@@ -381,7 +333,7 @@ const RelatoriosPage = () => {
             <div className="flex flex-wrap items-center gap-4">
               {/* Period Navigation */}
               <div className="flex items-center gap-2">
-                <Button variant="outline" size="icon" onClick={() => navigatePeriod("prev")}>
+                <Button variant="outline" size="icon" aria-label="Competência anterior" onClick={() => navigatePeriod("prev")}>
                   <ChevronLeft className="w-4 h-4" />
                 </Button>
                 <div className="min-w-[180px] text-center">
@@ -393,7 +345,7 @@ const RelatoriosPage = () => {
                     </Badge>
                   )}
                 </div>
-                <Button variant="outline" size="icon" onClick={() => navigatePeriod("next")}>
+                <Button variant="outline" size="icon" aria-label="Próxima competência" onClick={() => navigatePeriod("next")}>
                   <ChevronRight className="w-4 h-4" />
                 </Button>
               </div>
@@ -402,22 +354,23 @@ const RelatoriosPage = () => {
 
               {/* Store Filter */}
               <Select value={storeFilter} onValueChange={setStoreFilter}>
-                <SelectTrigger className="w-[180px]">
-                  <SelectValue placeholder="Todas as lojas" />
+                <SelectTrigger className="w-[180px]" aria-label="Filtrar por PDV">
+                  <SelectValue placeholder="Todos os PDVs" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">Todas as lojas</SelectItem>
+                  <SelectItem value="all">Todos os PDVs</SelectItem>
                   {stores.map((store) => (
                     <SelectItem key={store.id} value={store.id}>
                       {store.store_name}
                     </SelectItem>
                   ))}
+                  <SelectItem value="without-store">Sem PDV</SelectItem>
                 </SelectContent>
               </Select>
 
               {/* Collaborator Filter */}
               <Select value={collaboratorFilter} onValueChange={setCollaboratorFilter}>
-                <SelectTrigger className="w-[200px]">
+                <SelectTrigger className="w-[200px]" aria-label="Filtrar por colaborador">
                   <SelectValue placeholder="Todos os colaboradores" />
                 </SelectTrigger>
                 <SelectContent>
@@ -432,6 +385,13 @@ const RelatoriosPage = () => {
             </div>
           </CardContent>
         </Card>
+
+        <StorePayrollSummaryTable
+          summary={storeSummary}
+          isLoading={reportLoading}
+          isError={reportError}
+          onRetry={() => { void refetchEntries(); void refetchStores(); }}
+        />
 
         {/* Summary Cards */}
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
@@ -491,7 +451,7 @@ const RelatoriosPage = () => {
             ) : (
               <Accordion type="multiple" className="w-full">
                 {Array.from(groupedData.entries()).map(([collabId, data]) => {
-                  const collabTotals = calculateCollaboratorTotals(data.entries);
+                  const collabTotals = calculatePayrollReportTotals(data.entries);
                   return (
                   <AccordionItem key={collabId} value={collabId}>
                     <AccordionTrigger className="hover:no-underline">
@@ -526,7 +486,7 @@ const RelatoriosPage = () => {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {data.entries.map((entry: any) => (
+                          {data.entries.map((entry) => (
                             <TableRow key={entry.id}>
                               <TableCell>
                                 <Badge variant="outline">{typeLabels[entry.type] || entry.type}</Badge>
@@ -544,12 +504,12 @@ const RelatoriosPage = () => {
                               <TableCell className={`text-right font-medium ${
                                 entry.type === "fgts"
                                   ? "text-muted-foreground"
-                                  : deductionTypes.includes(entry.type)
+                                  : isDeduction(entry.type)
                                   ? "text-destructive"
                                   : "text-success"
                               }`}>
                                 {/* FGTS é custo da empresa — sem sinal de desconto */}
-                                {entry.type === "fgts" ? "" : deductionTypes.includes(entry.type) ? "- " : "+ "}
+                                {entry.type === "fgts" ? "" : isDeduction(entry.type) ? "- " : "+ "}
                                 {formatCurrency(entry.value)}
                               </TableCell>
                             </TableRow>

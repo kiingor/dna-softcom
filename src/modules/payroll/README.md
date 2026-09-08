@@ -51,3 +51,22 @@ Cada CNPJ tem o próprio fechamento de folha. Lançamentos são alimentados ao l
 ## Edge Functions
 
 - `payroll-export` — gera Excel do período pro contador (formato negociado)
+
+## Relatórios por PDV
+
+A tela **Relatórios** reúne os lançamentos da empresa e competência selecionadas
+numa tabela por PDV e tipo de pagamento, acima do extrato por colaborador.
+Salário base, FGTS, Agregado (`carro_agregado`), Custo setor (`bonificacao`) e
+Gratificação são colunas permanentes. Outros tipos aparecem quando têm lançamentos
+nos filtros atuais; valores ausentes aparecem como zero.
+
+O agrupamento e o filtro usam primeiro o PDV do lançamento (`store_id`), com o PDV
+atual do colaborador como alternativa para registros sem essa informação.
+Lançamentos sem nenhum vínculo aparecem em **Sem PDV**. Os filtros de competência,
+PDV e colaborador também se aplicam aos totais e às exportações.
+
+Os totais seguem a classificação do módulo: líquido = proventos − descontos;
+custo total = proventos + FGTS, com custo setor já incluído nos proventos.
+Estornos compensam os respectivos tipos. O resumo usa valores já lançados, sem
+recalcular encargos. Excel inclui a aba **Resumo por PDV** e PDF começa com a mesma
+tabela, em paisagem, antes dos extratos individuais.
