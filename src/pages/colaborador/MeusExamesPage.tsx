@@ -1,6 +1,7 @@
 import { usePortal } from "@/contexts/PortalContext";
 import { useCollaboratorExams, useExamDocuments } from "@/hooks/useExams";
 import { EXAM_TYPE_LABELS, EXAM_STATUS_LABELS, EXAM_STATUS_COLORS } from "@/lib/riskGroupDefaults";
+import { getExamStatus } from "@/lib/examStatus";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -64,7 +65,7 @@ const MeusExamesPage = () => {
         <div className="space-y-3">
           {exams.map((exam) => {
             const docs = docsByExam[exam.id] || [];
-            const isOverdue = !["realizado", "cancelado"].includes(exam.status) && new Date(exam.due_date) < new Date();
+            const status = getExamStatus(exam);
 
             return (
               <Card key={exam.id}>
@@ -73,8 +74,8 @@ const MeusExamesPage = () => {
                     <div>
                       <div className="flex items-center gap-2 mb-1">
                         <span className="font-medium">{EXAM_TYPE_LABELS[exam.exam_type] || exam.exam_type}</span>
-                        <Badge variant={isOverdue ? "destructive" : EXAM_STATUS_COLORS[exam.status]} >
-                          {isOverdue ? "Vencido" : (EXAM_STATUS_LABELS[exam.status] || exam.status)}
+                        <Badge variant={EXAM_STATUS_COLORS[status]} >
+                          {EXAM_STATUS_LABELS[status] || status}
                         </Badge>
                       </div>
                       <div className="flex gap-4 text-sm text-muted-foreground">

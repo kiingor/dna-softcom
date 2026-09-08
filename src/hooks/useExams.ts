@@ -96,7 +96,14 @@ export const useExams = () => {
       risk_group_at_time?: string | null;
       notes?: string | null;
     }) => {
-      const { error } = await supabase.from("occupational_exams").update(data).eq("id", id);
+      if (!companyId) throw new Error("Selecione uma empresa para atualizar o exame.");
+      const { error } = await supabase
+        .from("occupational_exams")
+        .update(data)
+        .eq("id", id)
+        .eq("company_id", companyId)
+        .select("id")
+        .single();
       if (error) throw error;
     },
     onSuccess: () => {
@@ -105,6 +112,8 @@ export const useExams = () => {
       // ou periódico), usando a periodicidade do cargo. Por isso aqui só
       // invalidamos — não criamos o próximo no frontend (evita duplicar).
       queryClient.invalidateQueries({ queryKey: ["occupational-exams"] });
+      queryClient.invalidateQueries({ queryKey: ["collaborator-exams"] });
+      queryClient.invalidateQueries({ queryKey: ["subresource-exames"] });
       toast.success("Exame atualizado!");
     },
     onError: (e: any) => toast.error("Erro ao atualizar exame: " + e.message),

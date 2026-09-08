@@ -4,7 +4,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { useDashboard } from "@/contexts/DashboardContext";
 import PermissionGuard from "@/components/dashboard/PermissionGuard";
 import { useExams, type OccupationalExam } from "@/hooks/useExams";
+import { usePermissions } from "@/hooks/usePermissions";
 import { EXAM_TYPE_LABELS, EXAM_STATUS_LABELS, EXAM_STATUS_COLORS } from "@/lib/riskGroupDefaults";
+import { getExamStatus, isExamOpen } from "@/lib/examStatus";
 import { exportExamsToPDF, exportExamsToExcel } from "@/lib/examExportUtils";
 import { ExamRequestModal } from "@/components/exames/ExamRequestModal";
 import { ExamUploadModal } from "@/components/exames/ExamUploadModal";
@@ -21,29 +23,28 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { TableSkeleton } from "@/components/ui/table-skeleton";
 import { ClipboardText as ClipboardCheck, Plus, FileArrowDown as FileDown, Printer, MagnifyingGlass as Search, Calendar, Warning as AlertTriangle, CheckCircle, Clock, Upload, DotsThree as MoreHorizontal, XCircle } from "@phosphor-icons/react";
-import { format, isWithinInterval, parseISO, addDays, isBefore } from "date-fns";
+import { format, parseISO, addDays, isBefore, differenceInCalendarDays } from "date-fns";
 
 export default function ExamesPage() {
   const { currentCompany } = useDashboard();
   const { exams, isLoading, updateExam } = useExams();
+  const { canEdit } = usePermissions("exames");
 
   const [newExamOpen, setNewExamOpen] = useState(false);
   const [uploadExam, setUploadExam] = useState<OccupationalExam | null>(null);
   const [editExam, setEditExam] = useState<OccupationalExam | null>(null);
   const [dateAction, setDateAction] = useState<
-    { exam: OccupationalExam; mode: "realizar" | "agendar" } | null
+    { exam: OccupationalExam; mode: "realizar" | "agendar" | "limite" } | null
   >(null);
 
-  // Filters - default 30-day window
+  // Sem período inicial para manter os exames vencidos antigos acessíveis.
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
-  const [dateFrom, setDateFrom] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 30);
-    return d.toISOString().slice(0, 10);
-  });
+  const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const todayIso = format(new Date(), "yyyy-MM-dd");
+  const today = parseISO(todayIso);
 
   // Check if exam has documents
   const { data: examDocCounts = {} } = useQuery({
@@ -65,7 +66,7 @@ export default function ExamesPage() {
   const filteredExams = useMemo(() => {
     return exams.filter((exam) => {
       if (searchTerm && !exam.collaborator?.name?.toLowerCase().includes(searchTerm.toLowerCase())) return false;
-      if (statusFilter !== "all" && exam.status !== statusFilter) return false;
+      if (statusFilter !== "all" && getExamStatus(exam, todayIso) !== statusFilter) return false;
       if (typeFilter !== "all" && exam.exam_type !== typeFilter) return false;
       if (dateFrom) {
         const from = parseISO(dateFrom);
@@ -79,17 +80,15 @@ export default function ExamesPage() {
       }
       return true;
     });
-  }, [exams, searchTerm, statusFilter, typeFilter, dateFrom, dateTo]);
+  }, [exams, searchTerm, statusFilter, typeFilter, dateFrom, dateTo, todayIso]);
 
   // Summary cards
-  const today = new Date();
-  const in30Days = addDays(today, 30);
-  const pendingCount = exams.filter((e) => e.status === "pendente").length;
-  const overdueCount = exams.filter((e) => e.status !== "realizado" && e.status !== "cancelado" && isBefore(parseISO(e.due_date), today)).length;
+  const pendingCount = exams.filter((e) => getExamStatus(e, todayIso) === "pendente").length;
+  const overdueCount = exams.filter((e) => getExamStatus(e, todayIso) === "vencido").length;
   const next30Count = exams.filter((e) => {
-    if (e.status === "realizado" || e.status === "cancelado") return false;
-    const d = parseISO(e.due_date);
-    return !isBefore(d, today) && isBefore(d, in30Days);
+    if (!isExamOpen(e)) return false;
+    const daysLeft = differenceInCalendarDays(parseISO(e.due_date), today);
+    return daysLeft >= 0 && daysLeft <= 30;
   }).length;
   const doneThisMonth = exams.filter((e) => {
     if (e.status !== "realizado" || !e.completed_date) return false;
@@ -101,7 +100,7 @@ export default function ExamesPage() {
     const entries = filteredExams.map((e) => ({
       collaborator_name: e.collaborator?.name || "-",
       exam_type: e.exam_type,
-      status: e.status,
+      status: getExamStatus(e, todayIso),
       risk_group: e.risk_group_at_time,
       due_date: e.due_date,
       scheduled_date: e.scheduled_date,
@@ -116,6 +115,22 @@ export default function ExamesPage() {
 
     if (type === "pdf" || type === "print") exportExamsToPDF(data);
     else exportExamsToExcel(data);
+  };
+
+  const renderDeadlineButton = (exam: OccupationalExam) => {
+    if (!canEdit || exam.exam_type !== "periodico" || !isExamOpen(exam)) return null;
+
+    return (
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => setDateAction({ exam, mode: "limite" })}
+        aria-label={`Alterar data limite de ${exam.collaborator?.name || "exame periódico"}`}
+      >
+        <Pencil className="w-4 h-4 mr-2" />
+        Alterar data limite
+      </Button>
+    );
   };
 
   return (
@@ -194,7 +209,7 @@ export default function ExamesPage() {
                     </div>
                   </div>
                   <Select value={statusFilter} onValueChange={setStatusFilter}>
-                    <SelectTrigger className="w-[150px]"><SelectValue placeholder="Status" /></SelectTrigger>
+                    <SelectTrigger className="w-[150px]" aria-label="Filtrar por status"><SelectValue placeholder="Status" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">Todos</SelectItem>
                       <SelectItem value="pendente">Pendente</SelectItem>
@@ -216,8 +231,8 @@ export default function ExamesPage() {
                       <SelectItem value="avulso">Avulso</SelectItem>
                     </SelectContent>
                   </Select>
-                  <Input type="date" className="w-[140px]" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
-                  <Input type="date" className="w-[140px]" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+                  <Input type="date" aria-label="Data limite a partir de" className="w-[140px]" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+                  <Input type="date" aria-label="Data limite até" className="w-[140px]" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
                   <div className="flex gap-1">
                     <Button variant="outline" size="icon" onClick={() => handleExport("pdf")} title="Exportar PDF">
                       <FileDown className="w-4 h-4" />
@@ -259,7 +274,8 @@ export default function ExamesPage() {
                     </TableHeader>
                     <TableBody>
                       {filteredExams.map((exam) => {
-                        const isOverdue = !["realizado", "cancelado"].includes(exam.status) && isBefore(parseISO(exam.due_date), today);
+                        const status = getExamStatus(exam, todayIso);
+                        const isOverdue = status === "vencido";
                         return (
                           <TableRow key={exam.id} className={isOverdue ? "bg-destructive/15" : ""}>
                             <TableCell className="font-medium">{exam.collaborator?.name || "-"}</TableCell>
@@ -269,12 +285,17 @@ export default function ExamesPage() {
                               </Badge>
                             </TableCell>
                             <TableCell>
-                              <Badge variant={isOverdue ? "destructive" : EXAM_STATUS_COLORS[exam.status]} >
-                                {isOverdue ? "Vencido" : (EXAM_STATUS_LABELS[exam.status] || exam.status)}
+                              <Badge variant={EXAM_STATUS_COLORS[status]} >
+                                {EXAM_STATUS_LABELS[status] || status}
                               </Badge>
                             </TableCell>
                             <TableCell>{exam.risk_group_at_time || "-"}</TableCell>
-                            <TableCell>{format(parseISO(exam.due_date), "dd/MM/yyyy")}</TableCell>
+                            <TableCell>
+                              <div className="flex flex-col items-start gap-2">
+                                <span>{format(parseISO(exam.due_date), "dd/MM/yyyy")}</span>
+                                {renderDeadlineButton(exam)}
+                              </div>
+                            </TableCell>
                             <TableCell>{exam.completed_date ? format(parseISO(exam.completed_date), "dd/MM/yyyy") : "-"}</TableCell>
                             <TableCell>
                               {examDocCounts[exam.id] ? (
@@ -335,7 +356,7 @@ export default function ExamesPage() {
               <CardContent className="p-0">
                 {(() => {
                   const urgentExams = exams
-                    .filter((e) => !["realizado", "cancelado"].includes(e.status))
+                    .filter(isExamOpen)
                     .sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime());
 
                   if (urgentExams.length === 0) {
@@ -355,12 +376,13 @@ export default function ExamesPage() {
                           <TableHead>Tipo</TableHead>
                           <TableHead>Data Limite</TableHead>
                           <TableHead>Urgência</TableHead>
+                          {canEdit && <TableHead>Ações</TableHead>}
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {urgentExams.map((exam) => {
                           const dueDate = parseISO(exam.due_date);
-                          const daysLeft = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                          const daysLeft = differenceInCalendarDays(dueDate, today);
                           let urgencyBadge;
                           if (daysLeft < 0) urgencyBadge = <Badge variant="destructive">Vencido ({Math.abs(daysLeft)}d)</Badge>;
                           else if (daysLeft <= 7) urgencyBadge = <Badge variant="destructive">Urgente ({daysLeft}d)</Badge>;
@@ -377,6 +399,7 @@ export default function ExamesPage() {
                               </TableCell>
                               <TableCell>{format(dueDate, "dd/MM/yyyy")}</TableCell>
                               <TableCell>{urgencyBadge}</TableCell>
+                              {canEdit && <TableCell>{renderDeadlineButton(exam)}</TableCell>}
                             </TableRow>
                           );
                         })}
