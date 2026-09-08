@@ -214,12 +214,12 @@ export const useUpdateVacationRequest = () => {
 //
 // Fluxo:
 //   1. Calcula férias com salário/dependentes atuais do colab → snapshot.
-//   2. Determina payroll_month/year via D-2 do início do gozo (regra CLT 145).
+//   2. Determina payroll_month/year pelo mês do gozo (ou adiantamento).
 //   3. Se folha desse mês existe E está aberta → cria 4 payroll_entries
 //      (Férias provento, 1/3 provento, INSS desconto, IRPF desconto) e marca
 //      posted_to_payroll=true.
 //   4. Se folha não existe ou está fechada → apenas grava o snapshot +
-//      payroll_month/year. Quando a folha for aberta, helper postPendingVacations
+//      payroll_month/year. Ao abrir ou repopular, postScheduledVacations
 //      pega esses pendentes e lança automaticamente.
 //
 // Tudo idempotente via payroll_entries.external_id pattern 'ferias-{requestId}-{kind}'.
@@ -384,7 +384,7 @@ export const useApproveVacationRequest = () => {
       queryClient.invalidateQueries({ queryKey: ["payroll-entries"] });
       const monthLabel = `${String(result.payrollMonth).padStart(2, "0")}/${result.payrollYear}`;
       if (result.postedToPayroll) {
-        toast.success(`Aprovado e lançado na folha de ${monthLabel} (4 lançamentos).`);
+        toast.success(`Aprovado e lançado na folha de ${monthLabel} (${result.entryIds.length} lançamentos).`);
       } else {
         toast.success(
           `Aprovado. Será lançado automaticamente quando a folha de ${monthLabel} for aberta.`,

@@ -62,6 +62,7 @@ export function useSetPeriodStatus(periodId: string | undefined) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["payroll-period"] });
       queryClient.invalidateQueries({ queryKey: ["payroll-periods"] });
+      queryClient.invalidateQueries({ queryKey: ["payroll-payable-lines", periodId] });
       queryClient.invalidateQueries({
         queryKey: ["payroll-period-approvals", periodId],
       });

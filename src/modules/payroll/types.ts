@@ -136,7 +136,7 @@ export const ENTRY_TYPE_LABELS: Record<string, string> = {
   adiantamento: "Adiantamento",
   bonificacao: "Bonificação",
   gratificacao: "Gratificação",
-  carro_agregado: "Carro Agregado",
+  carro_agregado: "Veículo",
   periculosidade: "Periculosidade",
   auxilio_vale_transporte: "Auxílio Vale Transporte",
   desconto: "Desconto",

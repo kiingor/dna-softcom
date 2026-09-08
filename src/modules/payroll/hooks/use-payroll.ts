@@ -34,9 +34,8 @@ import {
   eligibleChildrenForSalarioFamilia,
   SALARIO_FAMILIA_LIMITE_2026,
 } from "@/lib/payroll/cltCalc";
-import { calcVacation, type VacationCalcResult } from "@/lib/payroll/vacationCalc";
 import { getCollabsToSkipNextMonth } from "@/lib/payroll/vacationSkipRules";
-import { postVacationToPayroll } from "@/hooks/useVacations";
+import { postScheduledVacations } from "../services/vacation-payroll.service";
 import { fetchAllRows } from "@/lib/fetchAllRows";
 import { AGENDA_SYNC_DISABLED } from "@/lib/agenda-sync";
 import {
@@ -993,128 +992,17 @@ export function usePayrollPeriods() {
       // ─────────────────────────────────────────────────────────────────────
       const recurringCopied = 0;
 
-      // ─────────────────────────────────────────────────────────────────────
-      // Lança férias aprovadas desse mês. Casos cobertos:
-      //   1. posted=false + payroll_month match → caso normal
-      //   2. posted=false + payroll_month null + start_date deriva pra cá
-      //      → fallback pra requests aprovadas antes da migration
-      //   3. posted=true + payroll_month match MAS entries não existem mais
-      //      → órfão (folha foi deletada e recriada) → re-lança
-      // ─────────────────────────────────────────────────────────────────────
-      const { data: allApproved } = await supabase
-        .from("vacation_requests")
-        .select("id, collaborator_id, calculation_snapshot, days_count, sell_days, start_date, payroll_month, payroll_year, posted_to_payroll, payroll_entry_ids")
-        .eq("company_id", companyId)
-        .eq("status", "approved");
+      const vacations = await postScheduledVacations(companyId, openMonth, openYear);
 
-      // 1+2: pendentes deste mês
-      const initialPending = (allApproved ?? []).filter((v) => {
-        if ((v as { posted_to_payroll: boolean }).posted_to_payroll) return false;
-        const pmonth = (v as { payroll_month: number | null }).payroll_month;
-        const pyear = (v as { payroll_year: number | null }).payroll_year;
-        if (pmonth === openMonth && pyear === openYear) return true;
-        if (pmonth == null && (v as { start_date: string }).start_date) {
-          const d = new Date((v as { start_date: string }).start_date);
-          d.setDate(d.getDate() - 2);
-          return d.getMonth() + 1 === openMonth && d.getFullYear() === openYear;
-        }
-        return false;
-      });
-
-      // 3: órfãos — posted=true desse mês mas entries não existem mais
-      const candidatePosted = (allApproved ?? []).filter((v) => {
-        if (!(v as { posted_to_payroll: boolean }).posted_to_payroll) return false;
-        const pmonth = (v as { payroll_month: number | null }).payroll_month;
-        const pyear = (v as { payroll_year: number | null }).payroll_year;
-        return pmonth === openMonth && pyear === openYear;
-      });
-
-      const orphanIdsCheck = candidatePosted.flatMap(
-        (v) => (v as { payroll_entry_ids: string[] | null }).payroll_entry_ids ?? [],
-      );
-      let existingEntryIds = new Set<string>();
-      if (orphanIdsCheck.length > 0) {
-        const { data: existing } = await supabase
-          .from("payroll_entries")
-          .select("id")
-          .in("id", orphanIdsCheck);
-        existingEntryIds = new Set((existing ?? []).map((e) => e.id as string));
-      }
-      const orphans = candidatePosted.filter((v) => {
-        const ids = (v as { payroll_entry_ids: string[] | null }).payroll_entry_ids ?? [];
-        if (ids.length === 0) return true; // posted mas sem ids = órfão garantido
-        return ids.some((id) => !existingEntryIds.has(id));
-      });
-
-      const pendingVacations = [...initialPending, ...orphans];
-
-      let vacationsPosted = 0;
-      if (pendingVacations && pendingVacations.length > 0) {
-        // Pra cada pendente: precisa do store_id atual do colab (snapshot
-        // não captura). Pré-carrega.
-        const collabIds = Array.from(
-          new Set(pendingVacations.map((v) => v.collaborator_id as string)),
-        );
-        const { data: collabs } = await supabase
-          .from("collaborators")
-          .select("id, store_id, current_salary, dependents_count")
-          .in("id", collabIds);
-        const collabById = new Map(
-          (collabs ?? []).map((c) => [
-            c.id as string,
-            c as { id: string; store_id: string | null; current_salary: number | null; dependents_count: number | null },
-          ]),
-        );
-
-        for (const v of pendingVacations) {
-          const collab = collabById.get(v.collaborator_id as string);
-          if (!collab) continue;
-
-          // Usa o snapshot se existir; senão recalcula como fallback.
-          let calc: VacationCalcResult | null =
-            (v.calculation_snapshot as unknown as VacationCalcResult | null) ?? null;
-          if (!calc) {
-            const salary = Number(collab.current_salary ?? 0);
-            if (!(salary > 0)) continue; // sem como calcular
-            calc = calcVacation({
-              salary,
-              daysTaken: v.days_count as number,
-              daysSold: (v.sell_days as number | null) ?? 0,
-              dependents: Number(collab.dependents_count ?? 0),
-            });
-          }
-
-          try {
-            const entryIds = await postVacationToPayroll({
-              requestId: v.id as string,
-              companyId,
-              collaboratorId: v.collaborator_id as string,
-              storeId: collab.store_id,
-              month: openMonth,
-              year: openYear,
-              calc,
-            });
-            await supabase
-              .from("vacation_requests")
-              .update({
-                posted_to_payroll: true,
-                payroll_entry_ids: entryIds.length > 0 ? entryIds : null,
-              })
-              .eq("id", v.id as string);
-            vacationsPosted++;
-          } catch (e) {
-            // Não derruba a abertura do período por causa de 1 férias com erro.
-            console.error(`Falha ao lançar férias ${v.id} na folha:`, e);
-          }
-        }
-      }
-
-      return { period: period as PayrollPeriod, vacationsPosted, recurringCopied };
+      return { period: period as PayrollPeriod, vacationsPosted: vacations.posted, vacationsFailed: vacations.failed, recurringCopied };
     },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["payroll-periods"] });
       queryClient.invalidateQueries({ queryKey: ["vacation-requests"] });
       queryClient.invalidateQueries({ queryKey: ["payroll-entries"] });
+      if (result.vacationsFailed > 0) {
+        toast.warning(`${result.vacationsFailed} solicitação(ões) de férias não pôde(ram) ser lançada(s). Confira os dados e repopule a folha para tentar novamente.`);
+      }
       const parts: string[] = ["Período aberto ✓"];
       if (result.recurringCopied > 0) {
         parts.push(
@@ -1207,15 +1095,26 @@ export function usePayrollPeriods() {
       if (!companyId) throw new Error("Empresa não encontrada");
       const { month, year } = periodToMonthYear(reference_month);
 
+      const { data: editablePeriod, error: periodError } = await supabase
+        .from("payroll_periods")
+        .select("status")
+        .eq("company_id", companyId)
+        .eq("reference_month", reference_month)
+        .maybeSingle();
+      if (periodError) throw periodError;
+      if (!editablePeriod) throw new Error("Folha não encontrada");
+      if (!isPeriodEditable(editablePeriod.status)) throw new Error(periodLockedMessage(editablePeriod.status));
+
       // Entries fixas já existentes → para deduplicar (paginado: passa de 1000)
       const existingEntries = await fetchAllRows<{
         collaborator_id: string;
         type: string;
         description: string | null;
+        external_id: string | null;
       }>(() =>
         supabase
           .from("payroll_entries")
-          .select("collaborator_id, type, description")
+          .select("collaborator_id, type, description, external_id")
           .eq("company_id", companyId)
           .eq("month", month)
           .eq("year", year)
@@ -1238,6 +1137,7 @@ export function usePayrollPeriods() {
       );
       const existingTaxes = new Set(
         (existingEntries ?? [])
+          .filter((e) => !e.external_id?.startsWith("ferias-"))
           .filter((e) => e.type === "inss" || e.type === "fgts" || e.type === "irpf")
           .map((e) => `${e.collaborator_id}::${e.type}`),
       );
@@ -1550,7 +1450,10 @@ export function usePayrollPeriods() {
         ),
       });
 
+      const vacations = await postScheduledVacations(companyId, month, year);
       return {
+        vacationsPosted: vacations.posted,
+        vacationsFailed: vacations.failed,
         salariesAdded: newSalaryEntries.length,
         benefitsAdded: newBenefitEntries.length,
         vtAdded,
@@ -1559,10 +1462,18 @@ export function usePayrollPeriods() {
     },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["payroll-entries"] });
+      queryClient.invalidateQueries({ queryKey: ["vacation-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["vacation-requests-approved"] });
+      if (result.vacationsFailed > 0) {
+        toast.warning(`${result.vacationsFailed} solicitação(ões) de férias não pôde(ram) ser lançada(s). Confira os dados e tente repopular novamente.`);
+      }
+      if (result.vacationsPosted > 0) {
+        toast.success(`${result.vacationsPosted} solicitação(ões) de férias incluída(s) nesta folha.`);
+      }
       const total = result.salariesAdded + result.benefitsAdded + result.vtAdded;
-      if (total === 0) {
+      if (total === 0 && result.vacationsPosted === 0 && result.vacationsFailed === 0) {
         toast.success("Tudo já populado — nenhum lançamento novo necessário.");
-      } else {
+      } else if (total > 0) {
         toast.success(`${total} lançamento(s) adicionado(s) ✓`);
       }
     },

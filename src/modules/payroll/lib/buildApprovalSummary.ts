@@ -9,8 +9,8 @@ import {
 // Resumo da folha POR COLABORADOR — o que a diretoria aprova.
 //
 // QUAL FÓRMULA É ESSA (decisão explícita, porque o módulo tem mais de uma):
-//   • A aba Pagamentos monta LINHAS DE PAGAMENTO (mescla salário+gratificações,
-//     separa o cheque de férias) e descarta quem fica com líquido ≤ 0. Isso faz
+//   • A aba Pagamentos monta LINHAS DE PAGAMENTO (soma salário, adicionais e
+//     férias; separa custo setor) e descarta quem fica com líquido ≤ 0. Isso faz
 //     sentido pra operacionalizar pagamento, mas ESCONDE colaborador — o que é
 //     inaceitável numa tela de aprovação: a diretoria assina o total.
 //   • Aqui a conta é a íntegra do que está lançado, por pessoa, sem clamp e sem

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildPaymentLines, type PayableEntryInput } from "./buildPaymentLines";
+import { buildPaymentLines, paymentLineFromSnapshot, type PayableEntryInput } from "./buildPaymentLines";
 
 // Helper: monta um lançamento mínimo com o que a fórmula usa.
 function entry(
@@ -35,11 +35,34 @@ function vac(
 }
 
 describe("buildPaymentLines", () => {
+  it("preserva valor e agrupamento de um pagamento congelado sob a regra anterior", () => {
+    const line = paymentLineFromSnapshot({
+      entry_id: "carro-antigo",
+      collaborator_id: "c1",
+      kind: "avulso",
+      gross: 800,
+      inss: 0,
+      irpf: 0,
+      other_deductions: 0,
+      net_amount: 800,
+      components: [{ entryId: "carro-antigo", type: "carro_agregado", label: "Carro Agregado", value: 800 }],
+      discounts: [],
+      payee_name: "Ana",
+      payee_document: null,
+      payee_pix_key: null,
+    });
+    expect(line.entryId).toBe("carro-antigo");
+    expect(line.kind).toBe("avulso");
+    expect(line.amount).toBe(800);
+  });
   it("mescla salário e adicionais numa linha só, com o salário base de âncora", () => {
     const lines = buildPaymentLines([
       entry("c1", "Ana", "salario_base", 3000, { id: "e-salario" }),
       entry("c1", "Ana", "gratificacao", 500, { id: "e-grat" }),
       entry("c1", "Ana", "hora_extra", 200, { id: "e-he" }),
+      entry("c1", "Ana", "carro_agregado", 800, { id: "e-veiculo" }),
+      entry("c1", "Ana", "salario_familia", 60, { id: "e-familia" }),
+      entry("c1", "Ana", "periculosidade", 900, { id: "e-periculosidade" }),
       entry("c1", "Ana", "inss", 300),
       entry("c1", "Ana", "irpf", 100),
     ]);
@@ -50,10 +73,10 @@ describe("buildPaymentLines", () => {
     // entre recálculos, e é ele que carrega a marcação de pago.
     expect(l.entryId).toBe("e-salario");
     expect(l.kind).toBe("mensal");
-    expect(l.gross).toBe(3700);
-    expect(l.amount).toBe(3300);
-    expect(l.types).toEqual(["salario_base", "gratificacao", "hora_extra"]);
-    expect(l.components).toHaveLength(3);
+    expect(l.gross).toBe(5460);
+    expect(l.amount).toBe(5060);
+    expect(l.types).toEqual(["salario_base", "gratificacao", "hora_extra", "periculosidade", "salario_familia", "carro_agregado"]);
+    expect(l.components).toHaveLength(6);
   });
 
   it("usa a ordem de MONTHLY_MERGED_TYPES nos componentes, não a ordem de entrada", () => {
@@ -137,31 +160,51 @@ describe("buildPaymentLines", () => {
     expect(lines).toHaveLength(0);
   });
 
-  it("separa o cheque de férias do pagamento mensal", () => {
+  it("soma férias ao salário e desconta os impostos de cada origem uma vez", () => {
     const lines = buildPaymentLines([
       entry("c1", "Ana", "salario_base", 3000, { id: "e-salario" }),
       entry("c1", "Ana", "inss", 300),
+      entry("c1", "Ana", "desconto", 100),
       vac("c1", "Ana", "ferias", 2000, { id: "e-ferias" }),
       vac("c1", "Ana", "gratificacao", 666.67, { id: "e-terco" }),
       vac("c1", "Ana", "inss", 200),
       vac("c1", "Ana", "irpf", 66.67),
     ]);
 
+    expect(lines).toHaveLength(1);
+    const [mensal] = lines;
+    expect(mensal.entryId).toBe("e-salario");
+    expect(mensal.gross).toBeCloseTo(5666.67, 2);
+    expect(mensal.amount).toBeCloseTo(5000, 2);
+    expect(mensal.inss).toBe(500);
+    expect(mensal.irpf).toBe(66.67);
+    expect(mensal.otherDeductions).toBe(100);
+    expect(mensal.types).toEqual(["salario_base", "ferias"]);
+    expect(mensal.components.map((c) => c.entryId)).toEqual(["e-salario", "e-ferias", "e-terco"]);
+  });
+
+  it("consolida férias antes de verificar se o líquido é positivo", () => {
+    const lines = buildPaymentLines([
+      entry("c1", "Ana", "salario_base", 1000),
+      entry("c1", "Ana", "adiantamento", 1200),
+      vac("c1", "Ana", "ferias", 2000),
+      vac("c1", "Ana", "inss", 200),
+    ]);
+    expect(lines).toHaveLength(1);
+    expect(lines[0].amount).toBe(1600);
+  });
+
+  it("inclui os extras do recibo de férias no pagamento consolidado", () => {
+    const lines = buildPaymentLines([
+      entry("c1", "Ana", "salario_base", 3000),
+      entry("c1", "Ana", "bonificacao", 400, { id: "setor" }),
+      vac("c1", "Ana", "ferias", 2000),
+      vac("c1", "Ana", "bonificacao", 300),
+      vac("c1", "Ana", "gratificacao", 200),
+    ]);
     expect(lines).toHaveLength(2);
-
-    const mensal = lines.find((l) => l.kind === "mensal")!;
-    const ferias = lines.find((l) => l.kind === "ferias")!;
-
-    // Cada cheque carrega os próprios impostos: o INSS de férias não pode
-    // reduzir o mensal, nem vice-versa.
-    expect(mensal.amount).toBe(2700);
-    expect(mensal.inss).toBe(300);
-
-    expect(ferias.entryId).toBe("e-ferias");
-    expect(ferias.gross).toBeCloseTo(2666.67, 2);
-    expect(ferias.amount).toBeCloseTo(2400, 2);
-    expect(ferias.types).toEqual(["ferias"]);
-    expect(ferias.description).toBe("Pagamento de Férias");
+    expect(lines.find((l) => l.kind === "mensal")?.amount).toBe(5500);
+    expect(lines.find((l) => l.kind === "avulso")?.entryId).toBe("setor");
   });
 
   it("não aplica débito manual no cheque de férias", () => {
@@ -184,13 +227,13 @@ describe("buildPaymentLines", () => {
       entry("c1", "Ana", "beneficio", 500, { id: "e-ben-null" }),
     ]);
 
-    const avulsos = lines.filter((l) => l.kind === "avulso");
-    expect(avulsos).toHaveLength(1);
-    expect(avulsos[0].entryId).toBe("e-ben-ok");
-    expect(avulsos[0].amount).toBe(300);
+    expect(lines).toHaveLength(1);
+    expect(lines[0].amount).toBe(3300);
+    expect(lines[0].components.map((c) => c.entryId)).toContain("e-ben-ok");
+    expect(lines[0].components).toHaveLength(2);
   });
 
-  it("deixa bonificação e carro agregado em linha própria, sem imposto", () => {
+  it("deixa apenas custo setor em linha própria e soma veículo ao salário", () => {
     const lines = buildPaymentLines([
       entry("c1", "Ana", "salario_base", 3000),
       entry("c1", "Ana", "inss", 300),
@@ -199,10 +242,24 @@ describe("buildPaymentLines", () => {
     ]);
 
     const avulsos = lines.filter((l) => l.kind === "avulso");
-    expect(avulsos).toHaveLength(2);
+    expect(avulsos).toHaveLength(1);
     // O imposto do mês já foi consumido pela linha mensal — não desconta de novo.
     expect(avulsos.every((l) => l.inss === 0 && l.irpf === 0)).toBe(true);
-    expect(avulsos.reduce((s, l) => s + l.amount, 0)).toBe(4800);
+    expect(avulsos[0].amount).toBe(4000);
+    const mensal = lines.find((l) => l.kind === "mensal")!;
+    expect(mensal.amount).toBe(3500);
+    expect(mensal.components.find((c) => c.entryId === "e-carro")?.label).toBe("Veículo");
+  });
+
+  it("soma atestado, auxílio transporte e retroativo ao pagamento mensal", () => {
+    const lines = buildPaymentLines([
+      entry("c1", "Ana", "salario_base", 3000),
+      entry("c1", "Ana", "atestado", 100),
+      entry("c1", "Ana", "auxilio_vale_transporte", 200),
+      entry("c1", "Ana", "salario_retroativo", 300),
+    ]);
+    expect(lines).toHaveLength(1);
+    expect(lines[0].amount).toBe(3600);
   });
 
   it("mantém os colaboradores independentes", () => {
@@ -224,7 +281,7 @@ describe("buildPaymentLines", () => {
       entry("c2", "Bruno", "salario_base", 2000),
       entry("c1", "Ana", "salario_base", 3000),
       entry("c1", "Ana", "bonificacao", 100, { description: "Zebra" }),
-      entry("c1", "Ana", "carro_agregado", 100, { description: "Alfa" }),
+      entry("c1", "Ana", "bonificacao", 100, { description: "Alfa" }),
     ]);
 
     expect(lines.map((l) => l.collaboratorName)).toEqual([

@@ -1786,7 +1786,7 @@ const CollaboratorModal = ({
       adiantamento: "Adiantamento",
       bonificacao: "Bonificação",
       gratificacao: "Gratificação",
-      carro_agregado: "Carro Agregado",
+      carro_agregado: "Veículo",
       auxilio_vale_transporte: "Auxílio Vale Transporte",
       desconto: "Desconto",
       // Legacy
@@ -3244,7 +3244,7 @@ const CollaboratorModal = ({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="auxilio_vale_transporte">Auxílio Vale Transporte</SelectItem>
-                  <SelectItem value="carro_agregado">Carro Agregado</SelectItem>
+                  <SelectItem value="carro_agregado">Veículo</SelectItem>
                   <SelectItem value="bonificacao">Bonificação</SelectItem>
                   <SelectItem value="gratificacao">Gratificação</SelectItem>
                   <SelectItem value="hora_extra">Hora extra</SelectItem>

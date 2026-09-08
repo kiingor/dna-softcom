@@ -50,7 +50,7 @@ const ENUM_LABELS: Record<string, Record<string, string>> = {
     adiantamento: "Adiantamento",
     bonificacao: "Bonificação",
     gratificacao: "Gratificação",
-    carro_agregado: "Carro Agregado",
+    carro_agregado: "Veículo",
     periculosidade: "Periculosidade",
     salario_familia: "Salário-Família",
     desconto: "Desconto",

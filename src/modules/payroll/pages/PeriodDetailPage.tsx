@@ -125,9 +125,9 @@ function PeriodDetailPageContent() {
   const { id } = useParams<{ id: string }>();
   const { currentCompany, hasAnyRole } = useDashboard();
   const canManage = hasAnyRole(["admin_gc", "gestor_gc"]);
-  const paymentsPermission = usePermissions("folha_pagamentos");
-  const canViewPayments = paymentsPermission.canView || paymentsPermission.isAdmin;
-  const canManagePayments = canManage && (paymentsPermission.canEdit || paymentsPermission.isAdmin);
+  const paymentsPermission = usePermissions("folha_pagamentos", true);
+  const canViewPayments = paymentsPermission.canView;
+  const canManagePayments = canManage && paymentsPermission.canEdit;
   // Aprovar como diretoria é gate de PAPEL, nunca de módulo: o toggle "Acesso
   // total" da tela de permissões concede todos os módulos, então gatear por
   // módulo transformaria qualquer usuário com acesso total em diretoria.
@@ -319,7 +319,7 @@ function PeriodDetailPageContent() {
   const lancamentoEntries = useMemo(
     () =>
       filteredEntries.filter((e) => {
-        if (e.type === "bonificacao") return false;
+        if (e.type === "bonificacao" && !e.external_id?.startsWith("ferias-")) return false;
         // Filtro de cargo (multi-seleção): mantém só os colaboradores cujo
         // cargo está entre os selecionados. Afeta KPIs e lista desta aba.
         if (positionFilter.size > 0) {

@@ -101,7 +101,12 @@ export const MODULE_GROUPS: ModuleGroup[] = [
 
 export const ALL_MODULES: ModuleType[] = MODULE_GROUPS.flatMap((g) => g.modules);
 
-export const usePermissions = (module: ModuleType): ModulePermissions => {
+export const usePermissions = (
+  module: ModuleType,
+  // Pagamentos exigem permissão explícita mesmo para admin_gc. O dono mantém
+  // as permissões concedidas pela própria RPC get_user_permissions.
+  ignoreCompanyAdmin = false,
+): ModulePermissions => {
   const { user, currentCompany } = useDashboard();
 
   const { data: isAdmin, isLoading: isAdminLoading } = useQuery({
@@ -150,8 +155,7 @@ export const usePermissions = (module: ModuleType): ModulePermissions => {
   const isLoading = isAdminLoading || isPermissionsLoading;
   const userIsAdmin = isAdmin ?? false;
 
-  // Admin has all permissions
-  if (userIsAdmin) {
+  if (userIsAdmin && !ignoreCompanyAdmin) {
     return {
       canView: true,
       canCreate: true,

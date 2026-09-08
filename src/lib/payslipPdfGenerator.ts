@@ -78,7 +78,7 @@
    atestado: "Atestado",
    adiantamento: "Adiantamento",
    bonificacao: "Bonificação",
-   carro_agregado: "Carro Agregado",
+   carro_agregado: "Veículo",
    desconto: "Desconto",
    inss: "INSS",
    irpf: "IRPF",

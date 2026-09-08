@@ -70,3 +70,37 @@ custo total = proventos + FGTS, com custo setor já incluído nos proventos.
 Estornos compensam os respectivos tipos. O resumo usa valores já lançados, sem
 recalcular encargos. Excel inclui a aba **Resumo por PDV** e PDF começa com a mesma
 tabela, em paisagem, antes dos extratos individuais.
+
+## Pagamentos e férias programadas
+
+O pagamento mensal soma salário base, gratificação, veículo (`carro_agregado`),
+salário-família, periculosidade e demais proventos pagáveis, incluindo o recibo de
+férias programado para a competência. Apenas custo setor (`bonificacao` fora do
+recibo) fica separado. Os impostos já calculados do mês e das férias são
+descontados uma vez, com os componentes discriminados no detalhe.
+
+Ao abrir ou repopular, férias aprovadas pendentes são incluídas sem duplicação.
+Vale a competência escolhida no adiantamento ou, quando não informada, o mês do
+gozo. O snapshot aprovado preserva o valor; solicitações antigas sem snapshot
+consideram também a gratificação e a bonificação cadastradas.
+
+Folhas já aprovadas usam os pagamentos congelados pelo servidor, preservando
+valores, favorecidos e agrupamento anteriores. As migrations
+`20260908160000_consolidate_payroll_payments.sql` e
+`20260908160100_reclassify_vehicle_entries.sql` devem ser aplicadas antes da
+publicação do frontend. A segunda corrige bonificações explicitamente descritas
+como veículo nas folhas editáveis sem pagamentos/congelamento e na ficha fixa;
+não recalcula encargos. Seus identificadores são guardados em tabela privada
+para rollback. Ambas incluem o SQL de reversão comentado.
+
+Na VPS, o frontend é publicado pelo serviço `web` de `deploy/frontend.yml`, com
+as variáveis de `deploy/frontend.env` do servidor. A API de produção é
+`https://api.dnasoftcom.com`; a configuração local do antigo Supabase Cloud não
+deve ser usada nesse build. Preserve os ajustes de produção: salário retroativo
+vem após salário base na mescla; reaprovar uma folha com PIX ou pagamento manual
+mantém o congelamento; visualizar e executar pagamentos exigem as permissões
+explícitas dos respectivos módulos, inclusive para `admin_gc`.
+
+Validação: `npm test -- src/modules/payroll src/lib/payroll`. Os testes com
+PGlite executam as funções SQL e comparam os valores com o agrupamento do
+frontend, além de verificar reclassificação e rollback, sem acessar produção.
