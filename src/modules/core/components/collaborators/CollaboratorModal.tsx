@@ -40,6 +40,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { FloppyDisk as Save, Plus, CurrencyDollar as DollarSign, Gift, Buildings as Building2, Users, CircleNotch as Loader2, X, Wallet, TreePalm as Palmtree, ArrowsLeftRight as ArrowRightLeft, Power, Trash, Clock, Stethoscope, TShirt, Scales, CheckCircle, IdentificationCard, Bandaids, CalendarX, Storefront, ArrowsClockwise } from "@phosphor-icons/react";
 import { SubResourceTab, type FieldDef } from "./tabs/SubResourceTab";
+import { FERIAS_FIELDS } from "./vacation-period-fields";
 import { toast } from "sonner";
 import { formatCPFInput, cleanCPF, validateCPF, formatPhoneInput, formatCEPInput, cleanCEP, BRAZIL_STATES } from "@/lib/validators";
 import { sendWhatsAppNotification } from "@/lib/whatsappNotifications";
@@ -83,13 +84,6 @@ const ABSENTEISMO_FIELDS: FieldDef[] = [
   { name: "notes", label: "Observação", type: "textarea" },
   { name: "has_certificate", label: "Tem atestado?", type: "checkbox" },
   { name: "bank_hours", label: "Banco de horas (h)", type: "number" },
-];
-const FERIAS_FIELDS: FieldDef[] = [
-  { name: "start_date", label: "Início da competência", type: "date", required: true },
-  { name: "end_date", label: "Fim da competência", type: "date", required: true },
-  { name: "days_entitled", label: "Dias de direito", type: "number", placeholder: "30" },
-  { name: "days_taken", label: "Dias gozados", type: "number" },
-  { name: "days_sold", label: "Dias vendidos", type: "number" },
 ];
 const DECIMO_FIELDS: FieldDef[] = [
   { name: "year", label: "Ano", type: "number", placeholder: "2026", required: true },

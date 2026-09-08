@@ -131,12 +131,12 @@ const ENTITY_MAP: Record<SubResourceKind, EntityConfig> = {
     table: "vacation_periods",
     toRemote: (l) => ({
       datas: l.posted_at,
-      periodoIn: l.accrual_start,
-      periodoFn: l.accrual_end,
-      dataLimite: l.deadline,
+      periodoIn: l.start_date,
+      periodoFn: l.end_date,
+      dataLimite: l.data_limite,
       dataPrevista: l.planned_start,
-      periodoInGozo: l.enjoyment_start,
-      periodoFnGozo: l.enjoyment_end,
+      periodoInGozo: l.gozo_start_date,
+      periodoFnGozo: l.gozo_end_date,
       pago: l.is_paid ? "S" : "N",
       valorPago: l.value_paid,
       observacao: l.notes,
@@ -145,9 +145,13 @@ const ENTITY_MAP: Record<SubResourceKind, EntityConfig> = {
       company_id: ex.companyId,
       collaborator_id: ex.collaboratorId,
       external_id: String(r.id),
-      accrual_start: r.periodoIn,
-      accrual_end: r.periodoFn,
-      notes: r.observacao,
+      // Respostas parciais da agenda não podem apagar as datas enviadas.
+      // Usa apenas colunas que existem em vacation_periods.
+      ...(r.periodoIn ? { start_date: r.periodoIn } : {}),
+      ...(r.periodoFn ? { end_date: r.periodoFn } : {}),
+      ...(r.periodoInGozo !== undefined ? { gozo_start_date: r.periodoInGozo } : {}),
+      ...(r.periodoFnGozo !== undefined ? { gozo_end_date: r.periodoFnGozo } : {}),
+      ...(r.dataLimite !== undefined ? { data_limite: r.dataLimite } : {}),
     }),
   },
   planos: {
@@ -383,6 +387,30 @@ serve(async (req) => {
 
   // ─────────────────────────────────────────────────────────────────────────
   if (action === "create") {
+    if (kind === "ferias") {
+      try {
+        // Campos opcionais vazios chegam como null; isso não aciona os
+        // DEFAULTs do Postgres e viola o NOT NULL dos dias de férias.
+        const daysEntitled = vacationDays(data.days_entitled, 30);
+        const daysTaken = vacationDays(data.days_taken, 0);
+        const daysSold = vacationDays(data.days_sold, 0);
+        if (daysEntitled <= 0) throw new Error("Os dias de direito devem ser maiores que zero.");
+        if (daysTaken + daysSold > daysEntitled) {
+          throw new Error("A soma dos dias gozados e vendidos excede os dias de direito.");
+        }
+        if (typeof data.start_date !== "string" || !data.start_date ||
+            typeof data.end_date !== "string" || !data.end_date) {
+          throw new Error("Informe o início e o fim da competência.");
+        }
+        if (data.end_date < data.start_date) {
+          throw new Error("O fim da competência não pode ser antes do início.");
+        }
+        data = { ...data, days_entitled: daysEntitled, days_taken: daysTaken, days_sold: daysSold };
+      } catch (err) {
+        return jsonResponse({ error: (err as Error).message }, 400);
+      }
+    }
+
     if (syncOff) {
       const dataFiltered: Record<string, unknown> = { ...data };
       for (const f of cfg.localOnlyFields ?? []) {
@@ -554,6 +582,14 @@ async function prunePlanoSaudeDeductions(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+
+function vacationDays(value: unknown, fallback: number): number {
+  if (value === null || value === undefined || value === "") return fallback;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+    throw new Error("Informe quantidades inteiras e não negativas para os dias de férias.");
+  }
+  return value;
+}
 
 async function checkPermission(
   // deno-lint-ignore no-explicit-any

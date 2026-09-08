@@ -5,6 +5,7 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { FunctionsHttpError } from "@supabase/supabase-js";
 import { Plus, Pencil, Trash, ArrowsClockwise } from "@phosphor-icons/react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -50,6 +51,10 @@ export interface FieldDef {
   placeholder?: string;
   /** se obrigatório */
   required?: boolean;
+  /** Valor inicial e usado no envio quando o campo fica vazio. */
+  defaultValue?: string | number | boolean;
+  /** Menor valor aceito em campos numéricos. */
+  min?: number;
 }
 
 export interface SubResourceTabProps<TRow extends { id: string; external_id?: string | null }> {
@@ -113,7 +118,7 @@ export function SubResourceTab<TRow extends { id: string; external_id?: string |
   const openCreate = () => {
     setEditing(null);
     const empty: Record<string, unknown> = {};
-    for (const f of fields) empty[f.name] = f.type === "checkbox" ? false : "";
+    for (const f of fields) empty[f.name] = f.defaultValue ?? (f.type === "checkbox" ? false : "");
     setFormData(empty);
     setFormOpen(true);
   };
@@ -123,7 +128,7 @@ export function SubResourceTab<TRow extends { id: string; external_id?: string |
     const prefilled: Record<string, unknown> = {};
     for (const f of fields) {
       const v = (row as unknown as Record<string, unknown>)[f.name];
-      prefilled[f.name] = v ?? (f.type === "checkbox" ? false : "");
+      prefilled[f.name] = v ?? f.defaultValue ?? (f.type === "checkbox" ? false : "");
     }
     setFormData(prefilled);
     setFormOpen(true);
@@ -139,6 +144,10 @@ export function SubResourceTab<TRow extends { id: string; external_id?: string |
         ...(payload.data ? { data: cleanData(payload.data, fields) } : {}),
       };
       const { data, error } = await supabase.functions.invoke("collaborator-subresource", { body });
+      if (error instanceof FunctionsHttpError) {
+        const response = await error.context.clone().json().catch(() => null);
+        if (typeof response?.error === "string") throw new Error(response.error);
+      }
       if (error) throw error;
       const errMsg = (data as { error?: string } | null)?.error;
       if (errMsg) throw new Error(errMsg);
@@ -146,6 +155,14 @@ export function SubResourceTab<TRow extends { id: string; external_id?: string |
     },
     onSuccess: (_, vars) => {
       queryClient.invalidateQueries({ queryKey });
+      if (kind === "ferias") {
+        queryClient.invalidateQueries({ queryKey: ["vacation-periods"] });
+        queryClient.invalidateQueries({ queryKey: ["vacation-periods-collaborator"] });
+        if (vars.action === "delete") {
+          queryClient.invalidateQueries({ queryKey: ["vacation-requests"] });
+          queryClient.invalidateQueries({ queryKey: ["vacation-requests-collaborator"] });
+        }
+      }
       // Excluir um plano de saúde cascateia nos descontos da folha (a edge
       // function remove os 'plano-saude-%' dos períodos abertos) — invalida a
       // folha pra refletir a remoção sem precisar recarregar a página.
@@ -338,6 +355,7 @@ function FieldInput({
         <input
           {...common}
           type={field.type}
+          min={field.min}
           value={field.type === "number" ? (value as number | "") ?? "" : (value as string) ?? ""}
           onChange={(e) =>
             onChange(field.type === "number" ? (e.target.value === "" ? null : Number(e.target.value)) : e.target.value)
@@ -352,7 +370,7 @@ function cleanData(data: Record<string, unknown>, fields: FieldDef[]): Record<st
   const out: Record<string, unknown> = {};
   for (const f of fields) {
     const v = data[f.name];
-    if (v === "" || v === undefined) out[f.name] = null;
+    if (v === "" || v === undefined || v === null) out[f.name] = f.defaultValue ?? null;
     else out[f.name] = v;
   }
   return out;
