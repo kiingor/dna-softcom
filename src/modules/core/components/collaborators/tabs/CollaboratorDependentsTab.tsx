@@ -74,7 +74,9 @@ export function CollaboratorDependentsTab({
     birth_date: "",
     cpf: "",
     kinship: "filho",
-    is_irpf_dependent: false,
+    // Padrão: dependente cadastrado já conta pro IRPF (desmarque se não for).
+    // O trigger sync_irpf_dependents_count atualiza o dependents_count da folha.
+    is_irpf_dependent: true,
     is_health_plan_dependent: false,
     is_invalid: false,
   });
