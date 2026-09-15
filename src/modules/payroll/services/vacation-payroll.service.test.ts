@@ -109,10 +109,30 @@ describe("postScheduledVacations", () => {
     state.updateError = true;
     expect(await postScheduledVacations("company", 9, 2026)).toEqual({ posted: 0, failed: 1 });
     expect(state.tables.vacation_requests[0].posted_to_payroll).toBe(false);
+
+    state.updateError = false;
+    expect(await postScheduledVacations("company", 9, 2026)).toEqual({ posted: 1, failed: 0 });
+    expect(await postScheduledVacations("company", 9, 2026)).toEqual({ posted: 0, failed: 0 });
+    expect(state.tables.vacation_requests[0].payroll_entry_ids).toEqual(["entry"]);
+    expect(state.post).toHaveBeenCalledTimes(2);
   });
 
-  it("recusa incluir férias em folha aprovada pela diretoria", async () => {
-    state.tables.payroll_periods[0].status = "aprovado_diretoria";
+  it("continua incluindo outras férias quando um recibo falha", async () => {
+    state.tables.vacation_requests.push({ ...state.tables.vacation_requests[0], id: "request-2" });
+    state.post.mockRejectedValueOnce(new Error("Falha ao lançar recibo"));
+    expect(await postScheduledVacations("company", 9, 2026)).toEqual({ posted: 1, failed: 1 });
+    expect(state.tables.vacation_requests[0].posted_to_payroll).toBe(false);
+    expect(state.tables.vacation_requests[1].posted_to_payroll).toBe(true);
+  });
+
+  it("não marca recibo sem lançamentos como incluído", async () => {
+    state.post.mockResolvedValueOnce([]);
+    expect(await postScheduledVacations("company", 9, 2026)).toEqual({ posted: 0, failed: 1 });
+    expect(state.tables.vacation_requests[0].posted_to_payroll).toBe(false);
+  });
+
+  it.each(["aprovado_diretoria", "closed", "exported"])("recusa incluir férias em folha bloqueada (%s)", async (status) => {
+    state.tables.payroll_periods[0].status = status;
     await expect(postScheduledVacations("company", 9, 2026)).rejects.toThrow();
     expect(state.post).not.toHaveBeenCalled();
   });

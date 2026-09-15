@@ -771,9 +771,9 @@ function PeriodDetailPageContent() {
               <CardHeader>
                 <CardTitle>Pagamentos</CardTitle>
                 <p className="text-sm text-muted-foreground">
-                  Valores líquidos (com INSS e IRPF já descontados conforme a
-                  tabela 2026). Benefícios, FGTS e lançamentos estornados ficam
-                  fora. Passa o mouse no ícone <Info className="inline w-3 h-3 mx-0.5 text-warning" weight="fill" /> pra ver bruto/desconto/líquido.
+                  Salário, adicionais e férias programadas somados por colaborador,
+                  com os descontos já aplicados. Apenas custo setor fica separado.
+                  Passa o mouse no ícone <Info className="inline w-3 h-3 mx-0.5 text-warning" weight="fill" /> pra ver a composição do pagamento.
                 </p>
               </CardHeader>
               <CardContent>

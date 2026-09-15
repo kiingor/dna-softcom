@@ -85,7 +85,9 @@ gozo. O snapshot aprovado preserva o valor; solicitações antigas sem snapshot
 consideram também a gratificação e a bonificação cadastradas.
 
 Folhas já aprovadas usam os pagamentos congelados pelo servidor, preservando
-valores, favorecidos e agrupamento anteriores. As migrations
+valores, favorecidos e agrupamento anteriores. Se a consulta falhar ou não houver
+pagamentos aprovados, a aba informa essa situação sem exibir uma simulação local
+como valor autorizado. As migrations
 `20260908160000_consolidate_payroll_payments.sql` e
 `20260908160100_reclassify_vehicle_entries.sql` devem ser aplicadas antes da
 publicação do frontend. A segunda corrige bonificações explicitamente descritas
