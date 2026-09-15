@@ -171,7 +171,9 @@ export function PaymentsTab({
   // como comentário, sem teste. Aqui sobrou só a adaptação para as formas que
   // este componente já renderiza.
   const { payableEntries, taxBreakdownByEntry } = useMemo(() => {
-    const useFrozen = folhaLiberada && frozenLines.length > 0;
+    // Mesmo um resultado vazio é definitivo após a aprovação: não mostrar
+    // uma nova simulação como se fosse o valor autorizado para pagamento.
+    const useFrozen = folhaLiberada;
     const lines = useFrozen ? frozenLines.map(paymentLineFromSnapshot) : buildPaymentLines(entries);
     const sourceById = new Map(entries.map((e) => [e.id, e]));
     const snapshotById = new Map(frozenLines.map((line) => [line.entry_id, line]));
@@ -389,7 +391,9 @@ export function PaymentsTab({
     return (
       <div className="text-center py-12">
         <p className="text-sm text-muted-foreground">
-          Sem lançamentos pagáveis no período. Adicione na aba Lançamentos primeiro.
+          {folhaLiberada
+            ? "Nenhum pagamento aprovado disponível para este período."
+            : "Sem lançamentos pagáveis no período. Adicione na aba Lançamentos primeiro."}
         </p>
       </div>
     );
