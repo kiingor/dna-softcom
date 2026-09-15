@@ -1,10 +1,10 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { OccupationalExam } from "@/hooks/useExams";
+import { useExams, type OccupationalExam } from "@/hooks/useExams";
 import ExamesPage from "./ExamesPage";
 
-const { from, update, updateFilter, save, toastSuccess, toastError, exportPDF, permissions } = vi.hoisted(() => ({
+const { from, update, updateFilter, save, toastSuccess, toastError, exportPDF, exportExcel, permissions } = vi.hoisted(() => ({
   from: vi.fn(),
   update: vi.fn(),
   updateFilter: vi.fn(),
@@ -12,6 +12,7 @@ const { from, update, updateFilter, save, toastSuccess, toastError, exportPDF, p
   toastSuccess: vi.fn(),
   toastError: vi.fn(),
   exportPDF: vi.fn(),
+  exportExcel: vi.fn(),
   permissions: { canView: true, canEdit: true, isLoading: false, isAdmin: false },
 }));
 
@@ -21,7 +22,7 @@ vi.mock("@/contexts/DashboardContext", () => ({
 }));
 vi.mock("@/hooks/usePermissions", () => ({ usePermissions: () => permissions }));
 vi.mock("sonner", () => ({ toast: { success: toastSuccess, error: toastError } }));
-vi.mock("@/lib/examExportUtils", () => ({ exportExamsToPDF: exportPDF, exportExamsToExcel: vi.fn() }));
+vi.mock("@/lib/examExportUtils", () => ({ exportExamsToPDF: exportPDF, exportExamsToExcel: exportExcel }));
 vi.mock("@/components/exames/ExamRequestModal", () => ({ ExamRequestModal: () => null }));
 vi.mock("@/components/exames/ExamUploadModal", () => ({ ExamUploadModal: () => null }));
 
@@ -86,7 +87,8 @@ describe("alteração da data limite de exames periódicos", () => {
       const query = {
         select: () => query,
         eq: () => query,
-        order: async () => ({ data: rows, error: null }),
+        order: () => query,
+        range: async (start: number, end: number) => ({ data: rows.slice(start, end + 1), error: null }),
         update,
       };
       return query;
@@ -190,13 +192,55 @@ describe("alteração da data limite de exames periódicos", () => {
     expect(screen.queryByRole("button", { name: /Alterar data limite de/ })).not.toBeInTheDocument();
   });
 
-  it("exporta o status de vencimento calculado pela data limite", async () => {
-    rows = [makeExam({ status: "pendente", due_date: "2026-09-07" })];
+  it("exporta o filtro de vencidos usando o status calculado pela data limite", async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    rows = [
+      makeExam({ status: "pendente", due_date: "2026-09-07" }),
+      makeExam({ id: "future", status: "pendente", due_date: "2026-10-01" }),
+    ];
     renderPage();
-    await screen.findByRole("row", { name: /Colaborador de teste/ });
+    await screen.findAllByRole("row", { name: /Colaborador de teste/ });
+    fireEvent.click(screen.getByRole("combobox", { name: "Filtrar por status" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Vencido" }));
     fireEvent.click(screen.getByTitle("Exportar PDF"));
     expect(exportPDF).toHaveBeenCalledWith(expect.objectContaining({
-      entries: [expect.objectContaining({ status: "vencido", due_date: "2026-09-07" })],
+      entries: [expect.objectContaining({ data_prev: "07/09/2026" })],
     }));
+  });
+
+  it.each(["PDF", "Excel", "Imprimir"])("exporta %s com os dados cadastrais e o último exame fora do período filtrado", async (type) => {
+    const collaborator = {
+      id: "collaborator-id", name: "Colaborador de teste", cpf: "001.234.567-89", position: "Implantador",
+      contracted_store: { store_name: "Unidade contratante" }, internal_location: "Externo",
+      rg: "1234567", rg_issuer: "SSP/PB", gender: "M", birth_date: "1995-02-12",
+    };
+    rows = [
+      makeExam({ collaborator, due_date: "2026-09-01" }),
+      makeExam({ id: "previous", collaborator, status: "realizado", due_date: "2025-09-03", completed_date: "2025-09-03" }),
+    ];
+    renderPage();
+    await screen.findAllByRole("row", { name: /Colaborador de teste/ });
+    fireEvent.change(screen.getByLabelText("Data limite a partir de"), { target: { value: "2026-09-01" } });
+    fireEvent.click(screen.getByTitle(type === "Imprimir" ? type : `Exportar ${type}`));
+
+    expect(type === "Excel" ? exportExcel : exportPDF).toHaveBeenCalledWith({
+      companyName: "Empresa",
+      entries: [{
+        NomeCompleto: "COLABORADOR DE TESTE", cnpj_cont: "UNIDADE CONTRATANTE", exame: "PERIODICO",
+        funcao: "IMPLANTADOR", Setor: "EXTERNO", cpf: "00123456789", rg: "1234567 SSP/PB",
+        Sexo: "M", data_nasc: "12/02/1995", data_prev: "01/09/2026", ult_exame: "03/09/2025",
+      }],
+    });
+  });
+
+  it("carrega todo o histórico quando os exames ultrapassam uma página da API", async () => {
+    rows = Array.from({ length: 1001 }, (_, index) => makeExam({ id: `exam-${index}` }));
+    queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { result } = renderHook(() => useExams(), {
+      wrapper: ({ children }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>,
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.exams).toEqual(rows);
+    expect(from).toHaveBeenCalledTimes(3);
   });
 });

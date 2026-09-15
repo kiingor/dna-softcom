@@ -20,7 +20,20 @@ export interface OccupationalExam {
   previous_position_id: string | null;
   created_at: string;
   updated_at: string;
-  collaborator?: { id: string; name: string; cpf: string; position: string | null };
+  collaborator?: {
+    id: string;
+    name: string;
+    cpf: string | null;
+    position: string | null;
+    rg?: string | null;
+    rg_issuer?: string | null;
+    gender?: string | null;
+    birth_date?: string | null;
+    internal_location?: string | null;
+    contracted_store?: { store_name: string } | null;
+    store?: { store_name: string } | null;
+    job_position?: { name: string } | null;
+  };
   position?: { id: string; name: string; risk_group: string | null } | null;
 }
 
@@ -44,14 +57,33 @@ export const useExams = () => {
     queryKey: ["occupational-exams", companyId],
     queryFn: async () => {
       if (!companyId) return [];
-      const { data, error } = await supabase
-        .from("occupational_exams")
-        .select("*, collaborator:collaborators!inner(id, name, cpf, position, status), position:positions!occupational_exams_position_id_fkey(id, name, risk_group)")
-        .eq("company_id", companyId)
-        .eq("collaborator.status", "ativo")
-        .order("due_date", { ascending: true });
-      if (error) throw error;
-      return data as unknown as OccupationalExam[];
+      // A exportação precisa do histórico para encontrar o último realizado.
+      // Paginar evita truncá-lo no limite de registros da API.
+      const allExams: OccupationalExam[] = [];
+      const pageSize = 500;
+      for (let offset = 0; ; offset += pageSize) {
+        const { data, error } = await supabase
+          .from("occupational_exams")
+          .select(`
+            *,
+            collaborator:collaborators!inner(
+              id, name, cpf, position, status, rg, rg_issuer, gender, birth_date, internal_location,
+              contracted_store:stores!collaborators_contracted_store_id_fkey(store_name),
+              store:stores!collaborators_store_id_fkey(store_name),
+              job_position:positions!collaborators_position_id_fkey(name)
+            ),
+            position:positions!occupational_exams_position_id_fkey(id, name, risk_group)
+          `)
+          .eq("company_id", companyId)
+          .eq("collaborator.status", "ativo")
+          .order("due_date", { ascending: true })
+          .order("id", { ascending: true })
+          .range(offset, offset + pageSize - 1);
+        if (error) throw error;
+        allExams.push(...data as unknown as OccupationalExam[]);
+        if (data.length < pageSize) break;
+      }
+      return allExams;
     },
     enabled: !!companyId,
   });

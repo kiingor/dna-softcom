@@ -1,27 +1,7 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
-import { EXAM_TYPE_LABELS, EXAM_STATUS_LABELS } from "./riskGroupDefaults";
-
-interface ExamExportEntry {
-  collaborator_name: string;
-  exam_type: string;
-  status: string;
-  risk_group: string | null;
-  due_date: string;
-  scheduled_date: string | null;
-  completed_date: string | null;
-  has_aso: boolean;
-}
-
-interface ExamExportData {
-  companyName: string;
-  companyCnpj?: string;
-  logoUrl?: string;
-  entries: ExamExportEntry[];
-}
-
-const formatDate = (d: string | null) => d ? new Date(d).toLocaleDateString("pt-BR") : "-";
+import { EXAM_EXPORT_COLUMNS, type ExamExportData } from "./examExportData";
 
 const loadImageAsBase64 = async (url: string): Promise<string | null> => {
   try {
@@ -45,7 +25,7 @@ export const exportExamsToPDF = async (data: ExamExportData) => {
   if (data.logoUrl) {
     const logoBase64 = await loadImageAsBase64(data.logoUrl);
     if (logoBase64) {
-      try { doc.addImage(logoBase64, "PNG", margin, y, 16, 16); } catch {}
+      try { doc.addImage(logoBase64, "PNG", margin, y, 16, 16); } catch { /* O relatório pode ser gerado sem logo. */ }
     }
   }
 
@@ -67,24 +47,29 @@ export const exportExamsToPDF = async (data: ExamExportData) => {
   doc.text("Relatório de Exames Ocupacionais", pageWidth / 2, y, { align: "center" });
   y += 8;
 
-  const tableData = data.entries.map((e) => [
-    e.collaborator_name,
-    EXAM_TYPE_LABELS[e.exam_type] || e.exam_type,
-    EXAM_STATUS_LABELS[e.status] || e.status,
-    e.risk_group || "-",
-    formatDate(e.due_date),
-    formatDate(e.scheduled_date),
-    formatDate(e.completed_date),
-    e.has_aso ? "Sim" : "Não",
-  ]);
+  const tableData = data.entries.map((entry) => EXAM_EXPORT_COLUMNS.map((column) => entry[column]));
 
   autoTable(doc, {
     startY: y,
-    head: [["Colaborador", "Tipo", "Status", "Grupo Risco", "Data Limite", "Agendado", "Realizado", "ASO"]],
+    head: [[...EXAM_EXPORT_COLUMNS]],
     body: tableData,
     theme: "striped",
     headStyles: { fillColor: [99, 102, 241] },
-    styles: { fontSize: 8 },
+    margin: { left: margin, right: margin },
+    styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak" },
+    columnStyles: {
+      0: { cellWidth: 39 },
+      1: { cellWidth: 23 },
+      2: { cellWidth: 24 },
+      3: { cellWidth: 44 },
+      4: { cellWidth: 22 },
+      5: { cellWidth: 23 },
+      6: { cellWidth: 28 },
+      7: { cellWidth: 10 },
+      8: { cellWidth: 18 },
+      9: { cellWidth: 18 },
+      10: { cellWidth: 20 },
+    },
   });
 
   doc.save(`exames_ocupacionais_${new Date().toISOString().slice(0, 10)}.pdf`);
@@ -93,24 +78,11 @@ export const exportExamsToPDF = async (data: ExamExportData) => {
 export const exportExamsToExcel = (data: ExamExportData) => {
   const wb = XLSX.utils.book_new();
   const wsData = [
-    ["Relatório de Exames Ocupacionais"],
-    [`Empresa: ${data.companyName}`],
-    [`Gerado em: ${new Date().toLocaleDateString("pt-BR")}`],
-    [],
-    ["Colaborador", "Tipo", "Status", "Grupo de Risco", "Data Limite", "Data Agendada", "Data Realizada", "ASO Enviado"],
-    ...data.entries.map((e) => [
-      e.collaborator_name,
-      EXAM_TYPE_LABELS[e.exam_type] || e.exam_type,
-      EXAM_STATUS_LABELS[e.status] || e.status,
-      e.risk_group || "-",
-      formatDate(e.due_date),
-      formatDate(e.scheduled_date),
-      formatDate(e.completed_date),
-      e.has_aso ? "Sim" : "Não",
-    ]),
+    [...EXAM_EXPORT_COLUMNS],
+    ...data.entries.map((entry) => EXAM_EXPORT_COLUMNS.map((column) => entry[column])),
   ];
   const ws = XLSX.utils.aoa_to_sheet(wsData);
-  ws["!cols"] = [{ wch: 30 }, { wch: 20 }, { wch: 12 }, { wch: 15 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 10 }];
+  ws["!cols"] = [42, 24, 24, 54, 20, 14, 24, 8, 14, 14, 14].map((wch) => ({ wch }));
   XLSX.utils.book_append_sheet(wb, ws, "Exames");
   XLSX.writeFile(wb, `exames_ocupacionais_${new Date().toISOString().slice(0, 10)}.xlsx`);
 };
