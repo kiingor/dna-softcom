@@ -6,7 +6,7 @@ import {
   RISK_GROUP_PERIODICITY_LABELS,
   EXAMS_BY_RISK_GROUP,
 } from "@/lib/riskGroupDefaults";
-import { Stethoscope, Upload, FileArrowDown, Check } from "@phosphor-icons/react";
+import { Stethoscope, Upload, Check } from "@phosphor-icons/react";
 import { RejectDocDialog } from "../components/RejectDocDialog";
 import type { AdmissionDocument } from "../types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -50,6 +50,7 @@ import {
 import { useAdmissionDocuments } from "../hooks/use-admission-documents";
 import { AdmissionStatusBadge } from "../components/AdmissionStatusBadge";
 import { DocumentList } from "../components/DocumentList";
+import { ViewAdmissionDocumentButton } from "../components/ViewAdmissionDocumentButton";
 import { AdmissionTimeline } from "../components/AdmissionTimeline";
 import { TestsSection } from "../components/TestsSection";
 import { REGIME_LABELS, type AdmissionJourneyStatus } from "../types";
@@ -891,12 +892,7 @@ function ExamRow({
       </div>
       <div className="flex items-center gap-1 shrink-0 flex-wrap">
         {doc?.file_url && (
-          <Button asChild variant="ghost" size="sm">
-            <a href={doc.file_url} target="_blank" rel="noopener noreferrer">
-              <FileArrowDown className="w-4 h-4 mr-1" />
-              Ver
-            </a>
-          </Button>
+          <ViewAdmissionDocumentButton filePath={doc.file_url} documentLabel={label} />
         )}
         {canManage && status !== "approved" && (
           <>

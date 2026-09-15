@@ -33,6 +33,18 @@ created → docs_pending → docs_in_review → docs_approved
 - Notificações por email
 - Timeline auditável
 
+## Visualização de anexos pelo G&C
+
+`admission_documents.file_url` armazena o caminho do objeto no bucket privado
+`admission-docs`. O botão `ViewAdmissionDocumentButton`, usado nos documentos e
+nos exames ocupacionais, solicita uma URL assinada com validade de cinco minutos
+a cada clique e abre o arquivo em outra aba. A assinatura usa a sessão do G&C e
+as políticas de acesso do Storage na API configurada no cliente Supabase.
+
+Não use esse caminho diretamente em `href`: o navegador o interpreta como uma
+rota do frontend e exibe 404. Falhas ao gerar o link fecham a aba provisória e
+exibem uma mensagem com opção de tentar novamente pelo botão.
+
 ## Diferenciação por regime
 
 | | CLT | PJ | Estagiário |
