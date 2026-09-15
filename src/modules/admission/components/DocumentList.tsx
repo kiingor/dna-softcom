@@ -7,10 +7,10 @@ import {
   Warning,
   CircleNotch as Loader2,
   FileText,
-  Eye,
 } from "@phosphor-icons/react";
 import { useAdmissionDocuments } from "../hooks/use-admission-documents";
 import { RejectDocDialog } from "./RejectDocDialog";
+import { ViewAdmissionDocumentButton } from "./ViewAdmissionDocumentButton";
 import {
   DOCUMENT_STATUS_LABELS,
   getDocumentDisplayLabel,
@@ -131,16 +131,10 @@ export function DocumentList({
                   {/* Ações */}
                   <div className="flex items-center gap-1 shrink-0">
                     {doc.file_url && (
-                      <Button asChild variant="ghost" size="sm">
-                        <a
-                          href={doc.file_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          <Eye className="w-4 h-4 mr-1" />
-                          Ver
-                        </a>
-                      </Button>
+                      <ViewAdmissionDocumentButton
+                        filePath={doc.file_url}
+                        documentLabel={docLabel}
+                      />
                     )}
                     {canManage && submitted && doc.status !== "approved" && (
                       <>
