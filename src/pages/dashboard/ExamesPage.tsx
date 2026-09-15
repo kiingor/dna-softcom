@@ -8,6 +8,7 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { EXAM_TYPE_LABELS, EXAM_STATUS_LABELS, EXAM_STATUS_COLORS } from "@/lib/riskGroupDefaults";
 import { getExamStatus, isExamOpen } from "@/lib/examStatus";
 import { exportExamsToPDF, exportExamsToExcel } from "@/lib/examExportUtils";
+import { buildExamExportRows } from "@/lib/examExportData";
 import { ExamRequestModal } from "@/components/exames/ExamRequestModal";
 import { ExamUploadModal } from "@/components/exames/ExamUploadModal";
 import { ExamEditModal } from "@/components/exames/ExamEditModal";
@@ -97,20 +98,9 @@ export default function ExamesPage() {
   }).length;
 
   const handleExport = (type: "pdf" | "excel" | "print") => {
-    const entries = filteredExams.map((e) => ({
-      collaborator_name: e.collaborator?.name || "-",
-      exam_type: e.exam_type,
-      status: getExamStatus(e, todayIso),
-      risk_group: e.risk_group_at_time,
-      due_date: e.due_date,
-      scheduled_date: e.scheduled_date,
-      completed_date: e.completed_date,
-      has_aso: !!examDocCounts[e.id],
-    }));
-
     const data = {
       companyName: currentCompany?.company_name || "",
-      entries,
+      entries: buildExamExportRows(filteredExams, exams),
     };
 
     if (type === "pdf" || type === "print") exportExamsToPDF(data);
@@ -234,13 +224,13 @@ export default function ExamesPage() {
                   <Input type="date" aria-label="Data limite a partir de" className="w-[140px]" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
                   <Input type="date" aria-label="Data limite até" className="w-[140px]" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
                   <div className="flex gap-1">
-                    <Button variant="outline" size="icon" onClick={() => handleExport("pdf")} title="Exportar PDF">
+                    <Button variant="outline" size="icon" disabled={isLoading} onClick={() => handleExport("pdf")} title="Exportar PDF">
                       <FileDown className="w-4 h-4" />
                     </Button>
-                    <Button variant="outline" size="icon" onClick={() => handleExport("excel")} title="Exportar Excel">
+                    <Button variant="outline" size="icon" disabled={isLoading} onClick={() => handleExport("excel")} title="Exportar Excel">
                       <FileDown className="w-4 h-4" />
                     </Button>
-                    <Button variant="outline" size="icon" onClick={() => handleExport("print")} title="Imprimir">
+                    <Button variant="outline" size="icon" disabled={isLoading} onClick={() => handleExport("print")} title="Imprimir">
                       <Printer className="w-4 h-4" />
                     </Button>
                   </div>
