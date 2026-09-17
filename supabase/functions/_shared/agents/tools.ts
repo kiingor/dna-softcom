@@ -50,6 +50,21 @@ const dates = {
   to: field("Data final de criação, inclusive, AAAA-MM-DD"),
 };
 const regimes = ["clt", "pj", "estagiario"];
+const admissionStatuses = [
+  "created",
+  "docs_pending",
+  "docs_in_review",
+  "docs_needs_adjustment",
+  "docs_approved",
+  "exam_scheduled",
+  "exam_done",
+  "contract_signed",
+  "admitted",
+  "cancelled",
+  "tests_pending",
+  "tests_in_review",
+  "all",
+];
 const candidateColumns = "id,name,cv_summary,cv_url,source,is_active";
 export const RECRUITER_TOOLS: Tool[] = [
   tool(
@@ -140,9 +155,12 @@ export const ANALYST_TOOLS: Tool[] = [
     "Admissões por status/regime e lista de pendências. Datas filtram criação. Dias na etapa são desconhecidos para registros sem entrada rastreada. Não há filtro de loja nesse cadastro.",
     {
       ...dates,
-      status: field(
-        "Status da admissão, ou all. Por padrão exclui admitidos/cancelados.",
-      ),
+      status: {
+        ...field(
+          "Status da admissão. docs_in_review = revisão documental. Por padrão exclui admitidos/cancelados.",
+        ),
+        enum: admissionStatuses,
+      },
       regime: { type: "string", enum: regimes },
       min_days_in_status: { type: "integer", minimum: 0, maximum: 3650 },
       details: field(
@@ -654,21 +672,7 @@ export function createAgentTools(options: ToolOptions) {
       }
       case "query_admissions": {
         await options.requireModule("admissoes");
-        const status = enumField(args.status, [
-          "created",
-          "docs_pending",
-          "docs_in_review",
-          "docs_needs_adjustment",
-          "docs_approved",
-          "exam_scheduled",
-          "exam_done",
-          "contract_signed",
-          "admitted",
-          "cancelled",
-          "tests_pending",
-          "tests_in_review",
-          "all",
-        ]);
+        const status = enumField(args.status, admissionStatuses);
         const regime = enumField(args.regime, regimes);
         if (args.details !== undefined && typeof args.details !== "boolean")
           throw new AgentError(

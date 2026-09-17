@@ -47,7 +47,7 @@ export async function runAgent(options: RunnerOptions) {
         .map((b) => b.text)
         .join("\n")
         .trim();
-      if (!text)
+      if (!text || text === "(empty response)")
         throw new AgentError(
           502,
           "empty_reply",

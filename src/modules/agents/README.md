@@ -28,11 +28,17 @@ O transporte usa SSE para progresso e conclusão. Streaming de tokens do provedo
 
 | Variável | Padrão | Uso |
 |---|---|---|
-| `AGENT_ANALYST_MODEL` | `dna-model` | Modelo/alias do Analista. |
-| `AGENT_RECRUITER_MODEL` | `dna-model` | Modelo/alias do Recrutador. |
+| `AGENT_MODEL_BASE_URL` | não definido | Base dedicada do OmniRouter, aceita URL terminada em `/v1`. |
+| `AGENT_MODEL_API_KEY` | não definido | Secret exclusivo dos dois chats, usado junto da base dedicada. |
+| `AGENT_ANALYST_MODEL` | `cx/gpt-5.5-low` no OmniRouter; `dna-model` no legado | Modelo/alias do Analista. |
+| `AGENT_RECRUITER_MODEL` | `cx/gpt-5.5-low` no OmniRouter; `dna-model` no legado | Modelo/alias do Recrutador. |
 | `AGENT_MODEL_STREAMING` | desativado | Ativar com `true` após validar o roteador. |
 
-Mantêm-se os secrets existentes do provedor e Supabase. Essas variáveis pertencem às Edge Functions, nunca ao frontend. Nenhum modelo externo novo foi escolhido ou contratado.
+Modelo escolhido em 17/09/2026: **GPT‑5.5 Low**, rota explícita `cx/gpt-5.5-low` no OmniRouter indicado pelo usuário. Ver [comparação com Sonnet/Gemini e limitações](../../../docs/avaliacao-omnirouter-agentes-2026-09-17.md) e [configuração de referência](../../../deploy/agents.env.example).
+
+Base e chave dedicadas devem ser configuradas juntas nos secrets das Edge Functions, nunca no frontend. O SDK usa `/v1/messages`; a normalização da base evita `/v1/v1/messages`. Configuração incompleta falha sem reutilizar a chave de outro provedor. Sem essas duas variáveis, permanece a conexão legada `ANTHROPIC_*`, permitindo publicar o código antes de ativar o novo provedor. Os demais fluxos de IA mantêm sua conexão existente.
+
+Embeddings de candidatos continuam usando `OPENAI_API_KEY` e `text-embedding-3-small`, compatíveis com o índice existente. O catálogo consultado do OmniRouter não anunciou embeddings; a chave do OmniRouter não deve substituir `OPENAI_API_KEY`. Se essa integração estiver indisponível, a busca textual continua e o agente informa a cobertura parcial.
 
 A resposta registra modelo solicitado e campo `model` devolvido pelo provedor. Se o roteador devolver apenas o alias, o provedor/modelo físico continua desconhecido. Tokens registrados são os informados pela resposta do LLM; custo financeiro depende do preço real da rota e ainda não é calculado. O limite atual é de 60 pedidos por usuário/agente/hora; avaliações maiores devem ser divididas em lotes.
 
@@ -87,6 +93,8 @@ Avaliação humana: nota 1–5 para cumprimento do pedido, continuidade, evidên
 
 ## Estado da entrega
 
-Implementação local e testes automatizados concluídos. A avaliação com modelo real, geração integral dos tipos em ambiente Supabase, piloto com RH e publicação dependem do acesso ao ambiente de homologação. Nenhum desses resultados foi presumido a partir dos testes locais.
+Implementação local, testes automatizados e comparação inicial com modelos reais no OmniRouter concluídos. A amostra com modelo real usa dados sintéticos e banco simulado; geração integral dos tipos, validação no Supabase real, avaliação completa com RH e publicação ainda dependem do ambiente de homologação. Nenhum resultado de publicação ou piloto foi presumido a partir dos testes locais.
+
+A integração dedicada passou em 63 testes específicos, ESLint e Deno check. Na comparação inicial, os três modelos completaram nove turnos cada. Na repetição com o prompt ajustado, o OmniRouter apresentou HTTP 429 por limite global de 50 conexões ativas, inclusive em modelos diferentes; a retomada após o tempo indicado permaneceu intermitente. O chat trata esse caso como indisponibilidade temporária, mas a capacidade do gateway ainda precisa ser confirmada para o piloto.
 
 Verificações em 17/09/2026: build aprovado; suíte completa com 378 testes aprovados e 13 testes de integração externa ignorados; 55 testes específicos dos agentes aprovados; ESLint dos arquivos dos agentes e checagem Deno das duas funções, `cv-process` e `admission-document-validate` aprovados. O lint global apresenta os mesmos 119 erros e 21 avisos da `main`; a checagem TypeScript global continua com erros preexistentes, sem novos diagnósticos nas alterações. A revisão visual local usou componentes reais com dados sintéticos em desktop e celular, sem validar autenticação ou chamadas ao modelo.

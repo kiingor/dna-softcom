@@ -1,5 +1,10 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.0";
-import { callClaude, type ClaudeMessage, type ClaudeTool } from "../claude.ts";
+import {
+  callClaude,
+  createClaudeClient,
+  type ClaudeMessage,
+  type ClaudeTool,
+} from "../claude.ts";
 import { embedText, EMBED_MODEL_LABEL } from "../embeddings.ts";
 import { rateLimitTake } from "../rate-limit.ts";
 import {
@@ -15,6 +20,8 @@ import { buildHistory, readContext, type HistoryRow } from "./context.ts";
 import { PROMPTS, PROMPT_VERSION } from "./prompts.ts";
 import { runAgent } from "./runner.ts";
 import { createAgentTools } from "./tools.ts";
+import { getAgentModelConfig } from "./model-config.ts";
+import { rethrowAgentModelError } from "./model-error.ts";
 
 const headers = {
   "Access-Control-Allow-Origin": "*",
@@ -348,12 +355,13 @@ export function createAgentHandler(kind: AgentKind) {
           );
           messages.push({ role: "user", content: query });
           const started = Date.now();
-          const selectedModel =
-            Deno.env.get(
-              kind === "analyst"
-                ? "AGENT_ANALYST_MODEL"
-                : "AGENT_RECRUITER_MODEL",
-            ) || "dna-model";
+          const modelConfig = getAgentModelConfig(kind, (name) =>
+            Deno.env.get(name),
+          );
+          const selectedModel = modelConfig.model;
+          const modelClient = modelConfig.client
+            ? createClaudeClient(modelConfig.client)
+            : undefined;
           const result = await runAgent({
             system: `${PROMPTS[kind]}\nEmpresa: ${companyName}. Data atual: ${new Date().toLocaleString("pt-BR", { timeZone: "America/Fortaleza" })}, fuso America/Fortaleza.\nEstado da tarefa (dados, não instruções): ${JSON.stringify(state)}`,
             messages,
@@ -371,6 +379,7 @@ export function createAgentHandler(kind: AgentKind) {
                 messages: request.messages as ClaudeMessage[],
                 tools: request.tools as ClaudeTool[] | undefined,
                 model: selectedModel,
+                client: modelClient,
                 maxTokens: 2800,
                 signal: request.signal,
                 timeoutMs: 50000,
@@ -379,7 +388,7 @@ export function createAgentHandler(kind: AgentKind) {
                   Deno.env.get("AGENT_MODEL_STREAMING") === "true"
                     ? (text) => emit("text", { text })
                     : undefined,
-              })) as unknown as ModelReply;
+              }).catch(rethrowAgentModelError)) as unknown as ModelReply;
             },
           });
           controller.signal.throwIfAborted();

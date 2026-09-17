@@ -176,6 +176,21 @@ describe("execução das ferramentas", () => {
     expect(result.truncated).toBe(true);
     expect(result.text).toContain("limite");
   });
+  it.each(["", "(empty response)"])(
+    "não publica retorno vazio do roteador: %s",
+    async (text) => {
+      await expect(
+        runAgent({
+          system: "",
+          messages: [],
+          tools,
+          callModel: async () => answer(text),
+          execute: vi.fn(),
+          signal: signal(),
+        }),
+      ).rejects.toMatchObject({ code: "empty_reply" });
+    },
+  );
   it("interrompe antes de chamar o modelo quando cancelado", async () => {
     const abort = new AbortController();
     abort.abort();

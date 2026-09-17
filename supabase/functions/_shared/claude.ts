@@ -53,6 +53,14 @@ export type ClaudeToolUseBlock = Protocol.ToolUseBlock;
 let _client: ClaudeClient | null = null;
 let _directClient: ClaudeClient | null = null;
 
+/** Cliente isolado para integrações com credenciais próprias, sem mudar o legado. */
+export function createClaudeClient(options: {
+  apiKey: string;
+  baseURL: string;
+}): ClaudeClient {
+  return new Anthropic(options);
+}
+
 /**
  * Returns a singleton Anthropic client. Reads `ANTHROPIC_API_KEY` from the
  * Edge Function environment (set via `supabase secrets set`).
@@ -126,6 +134,7 @@ export interface CallClaudeOptions {
   timeoutMs?: number;
   maxRetries?: number;
   onText?: (text: string) => void;
+  client?: ClaudeClient;
 }
 
 /**
@@ -155,9 +164,11 @@ export async function callClaude(
     timeoutMs,
     maxRetries,
     onText,
+    client: suppliedClient,
   } = options;
 
-  const client = direct ? getDirectClaudeClient() : getClaudeClient();
+  const client =
+    suppliedClient ?? (direct ? getDirectClaudeClient() : getClaudeClient());
   // Compat: remove prefixo legado `cc/` caso algum chamador passe model antigo.
   // Com `dna-model` (default atual) isso é no-op.
   const finalModel = model.replace(/^cc\//, "");
