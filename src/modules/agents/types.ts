@@ -1,81 +1,66 @@
-// Tipos do módulo Agents (chat com Recrutador, futuro Analista, etc).
-
 import type { Database } from "@/integrations/supabase/types";
-
-export type AgentSession = Database["public"]["Tables"]["agent_sessions"]["Row"];
-export type AgentMessage = Database["public"]["Tables"]["agent_messages"]["Row"];
-export type AgentSearchLog =
-  Database["public"]["Tables"]["agent_search_log"]["Row"];
-
+export type AgentKind = "recruiter" | "analyst" | "document_validator";
+export type ChatAgentKind = "recruiter" | "analyst";
+export type AgentSession =
+  Database["public"]["Tables"]["agent_sessions"]["Row"];
 export type AgentMessageRole =
   Database["public"]["Enums"]["agent_message_role"];
-
-export type AgentKind = "recruiter" | "analyst" | "document_validator";
-
-export const AGENT_LABELS: Record<AgentKind, string> = {
-  recruiter: "Recrutador",
-  analyst: "Analista G&C",
-  document_validator: "Validador de Documentos",
-};
-
-// Resposta do Edge Function recruiter-search
-export interface CandidateMatch {
+export type AgentSearchLog =
+  Database["public"]["Tables"]["agent_search_log"]["Row"];
+export interface AgentSource {
+  label: string;
+  href: string;
+  consultedAt: string;
+  detail?: string;
+}
+export interface CandidateSelection {
   id: string;
+  similarity?: number;
+  reason?: string;
+  evidence?: string[];
+  gaps?: string[];
+}
+export interface CandidateMatch extends CandidateSelection {
   name: string;
-  email: string | null;
-  phone: string | null;
-  linkedin_url: string | null;
-  cv_url: string | null;
   cv_summary: string | null;
+  cv_url: string | null;
   source: string | null;
   is_active: boolean;
-  similarity: number;
+  email?: string | null;
+  phone?: string | null;
+  linkedin_url?: string | null;
 }
-
-export interface RecruiterSearchResponse {
+export interface AgentMetadata {
+  version?: number;
+  candidates?: CandidateSelection[];
+  sources?: AgentSource[];
+  feedback?: 1 | -1;
+  tool_calls?: { tool: string; ok?: boolean }[];
+  request_id?: string;
+}
+export type AgentMessage = Omit<
+  Database["public"]["Tables"]["agent_messages"]["Row"],
+  "metadata"
+> & { metadata: AgentMetadata | null };
+export interface AgentChatResponse {
   success: boolean;
   sessionId: string;
   userMessageId: string;
   assistantMessageId: string;
+  requestId?: string;
   assistantText: string;
   candidates: CandidateMatch[];
-  durationMs: number;
-  tokens: {
-    input: number;
-    output: number;
-  };
+  metadata?: AgentMetadata;
+  durationMs?: number;
+  tokens: { input: number; output: number };
+  replayed?: boolean;
 }
-
-// Metadata salvo no agent_messages.metadata pra mensagens do assistant
-export interface RecruiterMessageMetadata {
-  candidates: Array<{
-    id: string;
-    similarity: number;
-  }>;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Analista G&C
-// ─────────────────────────────────────────────────────────────────────────────
-
-export interface AnalystChatResponse {
-  success: boolean;
-  sessionId: string;
-  userMessageId: string;
-  assistantMessageId: string;
-  assistantText: string;
-  toolCalls: string[];
-  durationMs: number;
-  tokens: {
-    input: number;
-    output: number;
-  };
-}
-
-export interface AnalystMessageMetadata {
-  tool_calls: Array<{
-    tool: string;
-    input: unknown;
-    output: unknown;
-  }>;
-}
+export type AnalystChatResponse = AgentChatResponse;
+export type RecruiterSearchResponse = AgentChatResponse;
+export type AnalystMessageMetadata = AgentMetadata;
+export type RecruiterMessageMetadata = AgentMetadata;
+export const AGENT_LABELS: Record<AgentKind, string> = {
+  recruiter: "Recrutador",
+  analyst: "Analista IA",
+  document_validator: "Validador de Documentos",
+};

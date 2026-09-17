@@ -36,12 +36,16 @@ const OPENAI_EMBEDDINGS_URL = "https://api.openai.com/v1/embeddings";
  * Gera o embedding de um texto via OpenAI. Lança em erro de rede/HTTP ou se o
  * shape vier inesperado (deixa o chamador decidir se é fatal).
  */
-export async function embedText(input: string): Promise<number[]> {
+export async function embedText(
+  input: string,
+  signal?: AbortSignal,
+): Promise<number[]> {
   const apiKey = Deno.env.get("OPENAI_API_KEY");
   if (!apiKey) throw new Error("[embeddings] OPENAI_API_KEY ausente");
 
   const resp = await fetch(OPENAI_EMBEDDINGS_URL, {
     method: "POST",
+    signal,
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",

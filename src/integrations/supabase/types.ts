@@ -250,6 +250,7 @@ export type Database = {
           notes: string | null
           position_id: string | null
           regime: Database["public"]["Enums"]["collaborator_regime"]
+          status_entered_at: string | null
           status: Database["public"]["Enums"]["admission_journey_status"]
           token_expires_at: string | null
           updated_at: string
@@ -278,6 +279,7 @@ export type Database = {
           notes?: string | null
           position_id?: string | null
           regime: Database["public"]["Enums"]["collaborator_regime"]
+          status_entered_at?: string | null
           status?: Database["public"]["Enums"]["admission_journey_status"]
           token_expires_at?: string | null
           updated_at?: string
@@ -306,6 +308,7 @@ export type Database = {
           notes?: string | null
           position_id?: string | null
           regime?: Database["public"]["Enums"]["collaborator_regime"]
+          status_entered_at?: string | null
           status?: Database["public"]["Enums"]["admission_journey_status"]
           token_expires_at?: string | null
           updated_at?: string
@@ -502,6 +505,87 @@ export type Database = {
           },
         ]
       }
+      agent_runs: {
+        Row: {
+          assistant_message_id: string | null
+          company_id: string
+          created_at: string
+          error_code: string | null
+          id: string
+          lease_id: string
+          request_id: string
+          session_id: string
+          status: string
+          updated_at: string
+          user_id: string
+          user_message_id: string
+        }
+        Insert: {
+          assistant_message_id?: string | null
+          company_id: string
+          created_at?: string
+          error_code?: string | null
+          id?: string
+          lease_id?: string
+          request_id: string
+          session_id: string
+          status: string
+          updated_at?: string
+          user_id: string
+          user_message_id: string
+        }
+        Update: {
+          assistant_message_id?: string | null
+          company_id?: string
+          created_at?: string
+          error_code?: string | null
+          id?: string
+          lease_id?: string
+          request_id?: string
+          session_id?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+          user_message_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_runs_assistant_message_id_fkey"
+            columns: ["assistant_message_id"]
+            isOneToOne: false
+            referencedRelation: "agent_messages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_runs_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_runs_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "agent_company_overview"
+            referencedColumns: ["company_id"]
+          },
+          {
+            foreignKeyName: "agent_runs_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "agent_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_runs_user_message_id_fkey"
+            columns: ["user_message_id"]
+            isOneToOne: false
+            referencedRelation: "agent_messages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       agent_sessions: {
         Row: {
           agent_kind: string
@@ -509,6 +593,7 @@ export type Database = {
           company_id: string
           created_at: string
           id: string
+          task_context: Json
           title: string | null
           updated_at: string
           user_id: string
@@ -519,6 +604,7 @@ export type Database = {
           company_id: string
           created_at?: string
           id?: string
+          task_context?: Json
           title?: string | null
           updated_at?: string
           user_id: string
@@ -529,6 +615,7 @@ export type Database = {
           company_id?: string
           created_at?: string
           id?: string
+          task_context?: Json
           title?: string | null
           updated_at?: string
           user_id?: string
@@ -5903,6 +5990,7 @@ export type Database = {
           avg_days_in_status: number | null
           company_id: string | null
           count: number | null
+          known_status_entry_count: number | null
           latest_movement_at: string | null
           oldest_journey_at: string | null
           regime: Database["public"]["Enums"]["collaborator_regime"] | null
@@ -6066,6 +6154,43 @@ export type Database = {
       }
     }
     Functions: {
+      agent_begin_turn: {
+        Args: {
+          p_user_id: string
+          p_company_id: string
+          p_kind: string
+          p_session_id: string
+          p_request_id: string
+          p_query: string
+        }
+        Returns: Json
+      }
+      agent_finish_turn: {
+        Args: {
+          p_run_id: string
+          p_lease_id: string
+          p_content: string
+          p_metadata: Json
+          p_context: Json
+          p_model: string
+          p_input: number
+          p_output: number
+        }
+        Returns: string
+      }
+      agent_match_candidates: {
+        Args: {
+          query_embedding: string
+          filter_company_id: string
+          embedding_model: string
+          candidate_ids?: string[]
+          candidate_source?: string
+        }
+        Returns: {
+          candidate_id: string
+          similarity: number
+        }[]
+      }
       adjust_vacation_period_manual: {
         Args: {
           _days_sold: number
