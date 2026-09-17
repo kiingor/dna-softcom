@@ -283,6 +283,7 @@ serve(async (req) => {
   // 5. Claude extrai resumo estruturado (timeout 50s, antes do Edge timeout de 60s)
   t0 = stepStart();
   let summary: string;
+  let tokenCount = 0;
   try {
     const claudeResp = await withTimeout(
       callClaude({
@@ -312,6 +313,7 @@ serve(async (req) => {
       50000,
       "claude.messages.create",
     );
+    tokenCount = (claudeResp.usage?.input_tokens ?? 0) + (claudeResp.usage?.output_tokens ?? 0);
     summary = extractTextFromResponse(claudeResp).trim();
     if (!summary || summary.length < 20) {
       throw new Error("Resumo vazio ou muito curto");

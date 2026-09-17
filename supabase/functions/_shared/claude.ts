@@ -39,16 +39,27 @@ export const DEFAULT_CLAUDE_MODEL = "dna-model";
 export const DEFAULT_MAX_TOKENS = 4096;
 
 // Re-exported types so callers can stay decoupled from the SDK URL.
-export type ClaudeMessage = Anthropic.MessageParam;
-export type ClaudeTool = Anthropic.Tool;
-export type ClaudeToolChoice = Anthropic.MessageCreateParams["tool_choice"];
-export type ClaudeResponse = Anthropic.Message;
-export type ClaudeContentBlock = Anthropic.ContentBlock;
-export type ClaudeTextBlock = Anthropic.TextBlock;
-export type ClaudeToolUseBlock = Anthropic.ToolUseBlock;
+import type * as Protocol from "./claude-protocol.ts";
+type ClaudeClient = InstanceType<typeof Anthropic>;
 
-let _client: Anthropic | null = null;
-let _directClient: Anthropic | null = null;
+export type ClaudeMessage = Protocol.MessageParam;
+export type ClaudeTool = Protocol.Tool;
+export type ClaudeToolChoice = Protocol.ToolChoice;
+export type ClaudeResponse = Protocol.Message;
+export type ClaudeContentBlock = Protocol.Message["content"][number];
+export type ClaudeTextBlock = Protocol.TextBlockParam;
+export type ClaudeToolUseBlock = Protocol.ToolUseBlock;
+
+let _client: ClaudeClient | null = null;
+let _directClient: ClaudeClient | null = null;
+
+/** Cliente isolado para integrações com credenciais próprias, sem mudar o legado. */
+export function createClaudeClient(options: {
+  apiKey: string;
+  baseURL: string;
+}): ClaudeClient {
+  return new Anthropic(options);
+}
 
 /**
  * Returns a singleton Anthropic client. Reads `ANTHROPIC_API_KEY` from the
@@ -58,7 +69,7 @@ let _directClient: Anthropic | null = null;
  *   const client = getClaudeClient();
  *   const res = await client.messages.create({ ... });
  */
-export function getClaudeClient(): Anthropic {
+export function getClaudeClient(): ClaudeClient {
   if (_client) return _client;
 
   const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
@@ -82,10 +93,11 @@ export function getClaudeClient(): Anthropic {
  * "direto" agora só significa um cliente/sessão separado, mesma baseURL.
  * Lê `ANTHROPIC_DIRECT_API_KEY` (ou cai pra `ANTHROPIC_API_KEY` se não houver).
  */
-export function getDirectClaudeClient(): Anthropic {
+export function getDirectClaudeClient(): ClaudeClient {
   if (_directClient) return _directClient;
 
-  const apiKey = Deno.env.get("ANTHROPIC_DIRECT_API_KEY") ??
+  const apiKey =
+    Deno.env.get("ANTHROPIC_DIRECT_API_KEY") ??
     Deno.env.get("ANTHROPIC_API_KEY");
   if (!apiKey) {
     throw new Error(
@@ -95,14 +107,15 @@ export function getDirectClaudeClient(): Anthropic {
 
   // Mesmo router do cliente padrão (iarouter). Fallback pra api.anthropic.com
   // só se ANTHROPIC_BASE_URL não estiver setada.
-  const baseURL = Deno.env.get("ANTHROPIC_BASE_URL") || "https://api.anthropic.com";
+  const baseURL =
+    Deno.env.get("ANTHROPIC_BASE_URL") || "https://api.anthropic.com";
   _directClient = new Anthropic({ apiKey, baseURL });
   return _directClient;
 }
 
 export interface CallClaudeOptions {
   /** System prompt — string or structured blocks. */
-  system?: string | Anthropic.TextBlockParam[];
+  system?: string | Protocol.TextBlockParam[];
   /** Conversation messages (user/assistant). Required. */
   messages: ClaudeMessage[];
   /** Optional tool definitions for tool-use flows. */
@@ -117,6 +130,11 @@ export interface CallClaudeOptions {
   disableCache?: boolean;
   /** Bypassa o omnirouter — chama api.anthropic.com direto. */
   direct?: boolean;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+  maxRetries?: number;
+  onText?: (text: string) => void;
+  client?: ClaudeClient;
 }
 
 /**
@@ -142,14 +160,20 @@ export async function callClaude(
     maxTokens = DEFAULT_MAX_TOKENS,
     disableCache = false,
     direct = false,
+    signal,
+    timeoutMs,
+    maxRetries,
+    onText,
+    client: suppliedClient,
   } = options;
 
-  const client = direct ? getDirectClaudeClient() : getClaudeClient();
+  const client =
+    suppliedClient ?? (direct ? getDirectClaudeClient() : getClaudeClient());
   // Compat: remove prefixo legado `cc/` caso algum chamador passe model antigo.
   // Com `dna-model` (default atual) isso é no-op.
   const finalModel = model.replace(/^cc\//, "");
 
-  const params: Anthropic.MessageCreateParamsNonStreaming = {
+  const params: Protocol.MessageCreateParamsNonStreaming = {
     model: finalModel,
     max_tokens: maxTokens,
     messages: disableCache ? messages : applyCacheToLastUserMessage(messages),
@@ -161,7 +185,13 @@ export async function callClaude(
   if (tools !== undefined) params.tools = tools;
   if (toolChoice !== undefined) params.tool_choice = toolChoice;
 
-  return await client.messages.create(params);
+  const requestOptions = { signal, timeout: timeoutMs, maxRetries };
+  if (onText) {
+    const stream = client.messages.stream(params, requestOptions);
+    stream.on("text", (text: string) => onText(text));
+    return await stream.finalMessage();
+  }
+  return await client.messages.create(params, requestOptions);
 }
 
 /**
@@ -183,9 +213,9 @@ export function extractTextFromResponse(response: ClaudeResponse): string {
 // ---------------------------------------------------------------------------
 
 function applyCacheToSystem(
-  system: string | Anthropic.TextBlockParam[],
-): Anthropic.TextBlockParam[] {
-  const blocks: Anthropic.TextBlockParam[] =
+  system: string | Protocol.TextBlockParam[],
+): Protocol.TextBlockParam[] {
+  const blocks: Protocol.TextBlockParam[] =
     typeof system === "string" ? [{ type: "text", text: system }] : [...system];
 
   if (blocks.length === 0) return blocks;
@@ -215,7 +245,7 @@ function applyCacheToLastUserMessage(
   const cloned = [...messages];
   const target = cloned[lastUserIdx];
 
-  const blocks: Anthropic.ContentBlockParam[] =
+  const blocks: Protocol.ContentBlockParam[] =
     typeof target.content === "string"
       ? [{ type: "text", text: target.content }]
       : [...target.content];
@@ -226,7 +256,7 @@ function applyCacheToLastUserMessage(
   blocks[lastBlockIdx] = {
     ...blocks[lastBlockIdx],
     cache_control: { type: "ephemeral" },
-  } as Anthropic.ContentBlockParam;
+  } as Protocol.ContentBlockParam;
 
   cloned[lastUserIdx] = { ...target, content: blocks };
   return cloned;

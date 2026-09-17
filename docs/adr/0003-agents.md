@@ -174,3 +174,15 @@ Reavaliar quando:
 - Trocar pra modelo local
 - Mais de 3 agentes em produção
 - Volume de aprovações humanas virar gargalo
+
+## Revisão de implementação — 17/09/2026
+
+Status: implementação em branch, aguardando homologação; não publicada nesta sessão.
+
+O escopo confirmado é Recrutador e Analista IA. A implementação usa ferramentas tipadas diretamente nas Edge Functions, com um executor comum; o servidor MCP descrito no desenho inicial não é requisito deste fluxo. Os endpoints públicos existentes são preservados.
+
+Histórico recente, contexto persistido da tarefa, turnos idempotentes e controle de concorrência substituem o processamento isolado de cada busca. Consultas de domínio usam JWT/RLS e permissão de módulo; persistência de conversa usa `service_role` após validação, com revalidação da sessão na RPC. O modelo não define o escopo de empresa nem executa escritas de negócio.
+
+O Recrutador separa recuperação semântica da seleção profissional e valida os trechos apresentados como evidência. O Analista usa filtros explícitos e informa cobertura/limitações. A data de entrada na etapa de admissão passa a ser registrada para transições futuras; dados anteriores sem evidência permanecem desconhecidos.
+
+A escolha de modelo é configurável por agente, mantendo o alias atual até comparação com casos reais de teste. O suporte a streaming de tokens é ativado somente após verificar o roteador. A descrição detalhada, os limites e o procedimento de homologação estão em [README dos agentes](../../src/modules/agents/README.md).
