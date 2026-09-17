@@ -43,3 +43,11 @@ Após aguardar mais de 30 segundos, uma nova contagem de admissões funcionou e 
 Esta amostra orienta a escolha inicial. Não substitui as 40 conversas previstas, revisão do RH, testes de autenticação/RLS em Supabase, geração integral dos tipos ou piloto em homologação. Preços e limites efetivos da conta não foram confirmados; não há estimativa de custo baseada apenas no nome do modelo.
 
 A chave permaneceu na memória dos processos de validação, sem persistência no repositório, notas ou relatórios. A configuração de publicação exige inserir `AGENT_MODEL_API_KEY` nos secrets das Edge Functions.
+
+## Validação no runtime do servidor
+
+Após a autorização de publicação em `dnasoftcom.com`, foi preparado um ambiente temporário sem rota pública, com banco independente criado a partir do esquema de produção e dados exclusivamente fictícios. Usou as mesmas imagens PostgreSQL 17.6, GoTrue, PostgREST e Edge Runtime do DNA.
+
+Quatro turnos com `cx/gpt-5.5-low` e o prompt final concluíram: busca com evidências (21,27 s), comparação e entrevista preservando candidatos (19,61 s), contagem do quadro (8,06 s) e admissões com tempo na etapa (10,38 s). Replay devolveu a mesma resposta sem duplicação; feedback foi persistido. Os totais responderam exatamente às fixtures e dados de outra empresa não apareceram. Autenticação, permissões de módulo e escopo de empresa foram verificados por respostas 401/403.
+
+Não houve 429 nessa sequência. A observação reduz a incerteza da implantação, mas não comprova capacidade sob concorrência nem elimina a saturação registrada anteriormente. A credencial de publicação fica somente nos arquivos de secrets protegidos do servidor. Os tipos foram regenerados integralmente pelo postgres-meta após aplicar as migrations na cópia isolada.

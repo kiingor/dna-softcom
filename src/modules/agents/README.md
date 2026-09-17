@@ -52,9 +52,9 @@ Aplicar, nesta ordem, as migrations:
 2. `20260917140100_agent_admission_metrics.sql`: entrada rastreada em etapa e correção da média. Registros antigos ficam com tempo desconhecido até uma nova transição; não há backfill especulativo.
 3. `20260917140200_agent_candidate_search.sql`: busca vetorial com elegibilidade e modelo compatível, respeitando RLS.
 
-A primeira publicação deve ocorrer em homologação com dados sintéticos. Publicar `analyst-chat`, `recruiter-search`, os módulos `_shared/agents`, `_shared/claude.ts`, `_shared/claude-protocol.ts`, `_shared/embeddings.ts` e a correção de `cv-process`, junto do frontend correspondente. Na instalação própria, copiar os arquivos compartilhados também; publicar só `index.ts` não basta. Validar o runtime efetivo antes de promover.
+Validar primeiro em ambiente isolado com dados sintéticos. O usuário autorizou a publicação no DNA em uso (`dnasoftcom.com`) em 17/09/2026, após essa validação. Publicar `analyst-chat`, `recruiter-search`, os módulos `_shared/agents`, `_shared/claude.ts`, `_shared/claude-protocol.ts`, `_shared/embeddings.ts` e a correção de `cv-process`, junto do frontend correspondente. Na instalação própria, copiar os arquivos compartilhados também; publicar só `index.ts` não basta. Validar o runtime efetivo antes de promover.
 
-Os tipos de `src/integrations/supabase/types.ts` foram sincronizados com as mudanças. A tentativa de regeneração integral com `supabase gen types typescript --local` nesta máquina falhou por ausência de Docker/Podman. Conferir a geração integral no ambiente de homologação antes da publicação. As migrations foram executadas em PostgreSQL/PGlite nos testes, incluindo pgvector.
+Os tipos de `src/integrations/supabase/types.ts` foram regenerados integralmente com postgres-meta 0.96.6 sobre uma cópia isolada do esquema PostgreSQL 17.6 do servidor, após aplicar as três migrations. A geração inclui estruturas que já existiam no servidor e estavam ausentes nos tipos. As migrations também passaram nos testes PGlite com pgvector.
 
 Reversão operacional: restaurar as versões anteriores de frontend e funções. As adições de schema podem permanecer para preservar o histórico. Cada migration inclui rollback explícito; remoção de `agent_runs` exige preservar backup, pois contém o histórico das execuções. Não aplicar rollback destrutivo como primeira medida de reversão.
 
@@ -91,10 +91,14 @@ O relatório padrão fica em `/tmp`, com acesso restrito ao usuário. Ele regist
 
 Avaliação humana: nota 1–5 para cumprimento do pedido, continuidade, evidência e utilidade do próximo passo. Meta inicial: ao menos 85% dos casos com nota 4/5, 95% de fidelidade factual e todos os casos críticos aprovados. Execução bem-sucedida de API não equivale a resposta útil.
 
-## Estado da entrega
+## Validação antes da publicação em 17/09/2026
 
-Implementação local, testes automatizados e comparação inicial com modelos reais no OmniRouter concluídos. A amostra com modelo real usa dados sintéticos e banco simulado; geração integral dos tipos, validação no Supabase real, avaliação completa com RH e publicação ainda dependem do ambiente de homologação. Nenhum resultado de publicação ou piloto foi presumido a partir dos testes locais.
+- Suíte completa: **386 testes aprovados e 13 integrações externas ignoradas**. Os 63 testes específicos dos agentes estão incluídos.
+- Build Vite local e imagem Docker de produção aprovados. ESLint dos agentes e Deno check das duas funções, `cv-process` e `admission-document-validate` aprovados.
+- Tipos integralmente regenerados; TypeScript global mantém os mesmos 45 diagnósticos por arquivo/código, sem novos erros nos agentes. Lint global mantém 119 erros e 21 avisos preexistentes.
+- Ambiente temporário no servidor com PostgreSQL 17.6, GoTrue, PostgREST e Edge Runtime iguais aos de produção, usando banco separado, chaves próprias e somente registros fictícios.
+- Testes HTTP confirmaram rejeição sem autenticação (401), sem permissão do módulo (403) e de outra empresa (403); busca, comparação com contexto, replay sem duplicação, feedback, quadro e admissões passaram.
+- Quatro turnos com o modelo real concluíram nessa amostra: Recrutador 21,27 s e 19,61 s; Analista 8,06 s e 10,38 s. Nenhum 429 nessa sequência. A saturação observada na avaliação anterior continua como risco operacional, sem garantia de disponibilidade.
+- A configuração de embeddings estava ausente no servidor. A recuperação textual foi validada; a busca semântica só poderá ser ativada com uma credencial compatível com o índice existente.
 
-A integração dedicada passou em 63 testes específicos, ESLint e Deno check. Na comparação inicial, os três modelos completaram nove turnos cada. Na repetição com o prompt ajustado, o OmniRouter apresentou HTTP 429 por limite global de 50 conexões ativas, inclusive em modelos diferentes; a retomada após o tempo indicado permaneceu intermitente. O chat trata esse caso como indisponibilidade temporária, mas a capacidade do gateway ainda precisa ser confirmada para o piloto.
-
-Verificações em 17/09/2026: build aprovado; suíte completa com 378 testes aprovados e 13 testes de integração externa ignorados; 55 testes específicos dos agentes aprovados; ESLint dos arquivos dos agentes e checagem Deno das duas funções, `cv-process` e `admission-document-validate` aprovados. O lint global apresenta os mesmos 119 erros e 21 avisos da `main`; a checagem TypeScript global continua com erros preexistentes, sem novos diagnósticos nas alterações. A revisão visual local usou componentes reais com dados sintéticos em desktop e celular, sem validar autenticação ou chamadas ao modelo.
+A publicação efetiva e a reversão devem ser conferidas no PR #96 e no `DEPLOYMENT_CURRENT.md` do servidor. Não deduzir estado de produção apenas do merge. A avaliação completa dos 40 cenários e o piloto com RH continuam pendentes; metas de utilidade não são resultados medidos.
