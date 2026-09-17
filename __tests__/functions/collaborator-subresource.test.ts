@@ -23,6 +23,54 @@ const collab = { id: "collaborator-id", company_id: "company-id", external_id: "
 const dates = { start_date: "2025-09-01", end_date: "2026-08-31" };
 const insert = vi.fn();
 
+it("remove o desconto da folha substituta sem tocar no arquivo nem nas competências fechadas", async () => {
+  vi.resetAllMocks();
+  vi.stubGlobal("Deno", { env: { get: () => "test-value" } });
+  mocks.isAgendaSyncDisabled.mockReturnValue(true);
+  const removed: string[] = [];
+  const tables: Record<string, Array<Record<string, unknown>>> = {
+    collaborators: [collab],
+    collaborator_health_plans: [{ id: "plan-id", external_id: "plan-external" }],
+    payroll_periods: [
+      { company_id: collab.company_id, reference_month: "2026-09-01", status: "closed", archived_at: "2026-09-17" },
+      { company_id: collab.company_id, reference_month: "2026-09-01", status: "open", archived_at: null },
+      { company_id: collab.company_id, reference_month: "2026-08-01", status: "closed", archived_at: null },
+    ],
+    payroll_entries: [
+      { id: "active-discount", month: 9, year: 2026, archived_period_id: null },
+      { id: "archived-discount", month: 9, year: 2026, archived_period_id: "test-period" },
+      { id: "closed-discount", month: 8, year: 2026, archived_period_id: null },
+    ].map((row) => ({ ...row, collaborator_id: collab.id, external_id: "plano-saude-plan-external-202609" })),
+  };
+  const admin = { from: (table: string) => {
+    let rows = tables[table];
+    if (!rows) throw new Error(`Unexpected table: ${table}`);
+    const query = {
+      select: () => query,
+      delete: () => query,
+      eq: (field: string, value: unknown) => { rows = rows.filter((row) => row[field] === value); return query; },
+      is: (field: string, value: unknown) => { rows = rows.filter((row) => row[field] === value); return query; },
+      like: (field: string, value: string) => { rows = rows.filter((row) => String(row[field]).startsWith(value.replace(/%$/, ""))); return query; },
+      in: (_field: string, ids: string[]) => { removed.push(...ids); return query; },
+      single: async () => ({ data: rows[0], error: null }),
+      then: (resolve: (value: { data: typeof rows; error: null }) => unknown) => Promise.resolve({ data: rows, error: null }).then(resolve),
+    };
+    return query;
+  } };
+  mocks.createClient.mockReturnValueOnce({
+    auth: { getUser: async () => ({ data: { user: { id: "user-id" } }, error: null }) },
+    rpc: async () => ({ data: true, error: null }),
+  }).mockReturnValueOnce(admin);
+  try {
+    const response = await handler(new Request("http://localhost/collaborator-subresource", {
+      method: "POST", headers: { Authorization: "Bearer test-token", "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "delete", kind: "planos", collaboratorId: collab.id, localId: "plan-id" }),
+    }));
+    expect(await response.json()).toMatchObject({ success: true, cascaded: 1 });
+    expect(removed).toEqual(["active-discount"]);
+  } finally { vi.unstubAllGlobals(); }
+});
+
 async function createVacation(data: Record<string, unknown>) {
   return handler(new Request("http://localhost/collaborator-subresource", {
     method: "POST",
