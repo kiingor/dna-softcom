@@ -3867,6 +3867,7 @@ export type Database = {
       }
       payroll_entries: {
         Row: {
+          archived_period_id: string | null
           collaborator_id: string
           company_id: string
           created_at: string
@@ -3887,6 +3888,7 @@ export type Database = {
           year: number
         }
         Insert: {
+          archived_period_id?: string | null
           collaborator_id: string
           company_id: string
           created_at?: string
@@ -3907,6 +3909,7 @@ export type Database = {
           year: number
         }
         Update: {
+          archived_period_id?: string | null
           collaborator_id?: string
           company_id?: string
           created_at?: string
@@ -3927,6 +3930,12 @@ export type Database = {
           year?: number
         }
         Relationships: [
+          {
+            foreignKeyName: "payroll_entries_archived_period_id_fkey"
+            columns: ["archived_period_id"]
+            referencedRelation: "payroll_periods"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "payroll_entries_collaborator_id_fkey"
             columns: ["collaborator_id"]
@@ -4357,6 +4366,8 @@ export type Database = {
           approved_dir_by: string | null
           approved_rh_at: string | null
           approved_rh_by: string | null
+          archive_reason: string | null
+          archived_at: string | null
           closed_at: string | null
           closed_by: string | null
           company_id: string
@@ -4379,6 +4390,8 @@ export type Database = {
           approved_dir_by?: string | null
           approved_rh_at?: string | null
           approved_rh_by?: string | null
+          archive_reason?: string | null
+          archived_at?: string | null
           closed_at?: string | null
           closed_by?: string | null
           company_id: string
@@ -4401,6 +4414,8 @@ export type Database = {
           approved_dir_by?: string | null
           approved_rh_at?: string | null
           approved_rh_by?: string | null
+          archive_reason?: string | null
+          archived_at?: string | null
           closed_at?: string | null
           closed_by?: string | null
           company_id?: string

@@ -551,12 +551,14 @@ async function prunePlanoSaudeDeductions(
     .from("payroll_entries")
     .select("id, month, year")
     .eq("collaborator_id", collaboratorId)
+    .is("archived_period_id", null)
     .like("external_id", `plano-saude-${planExternalId}-%`);
   if (!deds || deds.length === 0) return 0;
 
   const { data: periods } = await sbAdmin
     .from("payroll_periods")
     .select("reference_month, status")
+    .is("archived_at", null)
     .eq("company_id", companyId);
   // Meses TRAVADOS a preservar (chave "YYYY-M"). Editável = rascunho ou
   // aprovado pelo RH; a folha só congela quando a diretoria aprova (espelha
