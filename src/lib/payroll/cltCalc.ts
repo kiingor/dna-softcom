@@ -29,6 +29,11 @@ export const IRPF_TABLE_2026 = [
 ] as const;
 
 export const DEPENDENT_DEDUCTION_2026 = 189.59;
+// Receita Federal: dedução mensal mais favorável, sem somar os dois regimes.
+// https://www.gov.br/receitafederal/pt-br/assuntos/meu-imposto-de-renda/tabelas/2026
+export const IRPF_SIMPLIFIED_DEDUCTION_2026 = 607.20;
+// Lei 9.430/1996, art. 67: dispensa de retenção na renda sujeita ao ajuste anual.
+export const IRPF_MONTHLY_WITHHOLDING_EXEMPTION = 10;
 export const IRPF_FULL_EXEMPTION_LIMIT_2026 = 5000;
 export const IRPF_REDUCER_LIMIT_2026 = 7350;
 export const IRPF_REDUCER_BASE_2026 = 978.62;
@@ -76,26 +81,30 @@ export function calcINSS(grossSalary: number): number {
 }
 
 /**
- * IRPF mensal com tabela progressiva 2026, dedução por dependente, e o
- * redutor da nova lei (renda até R$ 5.000 isenta; R$ 5k-R$ 7,35k tem
- * redutor parcial).
- *
- * Pra IRPF sobre 13º salário (tributação exclusiva na fonte) passe
- * `applyRedutor: false` — o redutor da Lei 14.973/2024 vale só pra renda
- * mensal recorrente, não pro 13º.
+ * Retenção mensal: dedução legal ou simplificada mais favorável, redução da
+ * Lei 15.270/2025 e dispensa de retenção até R$ 10 (Lei 9.430/1996, art. 67).
+ * Os fluxos separados que já usam applyRedutor=false mantêm seu tratamento;
+ * applyMonthlyRules permite configurar as regras mensais independentemente.
  */
 export function calcIRPF(args: {
   grossSalary: number;
   inss: number;
   dependents: number;
   applyRedutor?: boolean;
+  applyMonthlyRules?: boolean;
 }): number {
-  const { grossSalary, inss, dependents, applyRedutor = true } = args;
+  const {
+    grossSalary, inss, dependents, applyRedutor = true,
+    applyMonthlyRules = applyRedutor,
+  } = args;
   if (grossSalary <= 0) return 0;
   if (applyRedutor && grossSalary <= IRPF_FULL_EXEMPTION_LIMIT_2026) return 0;
 
-  const base =
-    grossSalary - inss - DEPENDENT_DEDUCTION_2026 * Math.max(0, dependents);
+  const legalDeductions = inss + DEPENDENT_DEDUCTION_2026 * Math.max(0, dependents);
+  const deduction = applyMonthlyRules
+    ? Math.max(legalDeductions, IRPF_SIMPLIFIED_DEDUCTION_2026)
+    : legalDeductions;
+  const base = grossSalary - deduction;
   if (base <= 0) return 0;
 
   let imposto = 0;
@@ -115,7 +124,10 @@ export function calcIRPF(args: {
     imposto = Math.max(0, imposto - redutor);
   }
 
-  return round2(imposto);
+  const withholding = round2(imposto);
+  return applyMonthlyRules && withholding <= IRPF_MONTHLY_WITHHOLDING_EXEMPTION
+    ? 0
+    : withholding;
 }
 
 /** FGTS é encargo do empregador (8% do bruto). Não desconta do colaborador. */
