@@ -103,6 +103,16 @@ vem após salário base na mescla; reaprovar uma folha com PIX ou pagamento manu
 mantém o congelamento; visualizar e executar pagamentos exigem as permissões
 explícitas dos respectivos módulos, inclusive para `admin_gc`.
 
+O PIX das linhas pendentes acompanha alterações de chave/CPF no cadastro após
+`20260928180000_sync_pending_payroll_pix.sql`. Somente chave, tipo e normalização
+são atualizados, com a auditoria existente; valores e nome/documento aprovado
+continuam congelados. Linhas pagas, arquivadas ou com qualquer tentativa PIX
+não falha preservam seu destino, inclusive tentativas `created` com código 2FA.
+Quando a tentativa falha ou um pagamento manual é desmarcado, a linha disponível
+recebe o PIX atual. A tela invalida o cache ao salvar o cadastro/cancelar uma
+tentativa e consulta novamente a cada 30 segundos enquanto estiver visível.
+Não há atualização global de chaves históricas na migration.
+
 Validação: `npm test -- src/modules/payroll src/lib/payroll`. Os testes com
 PGlite executam as funções SQL e comparam os valores com o agrupamento do
 frontend, além de verificar reclassificação e rollback, sem acessar produção.

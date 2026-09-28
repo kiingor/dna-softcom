@@ -116,6 +116,7 @@ export function usePixPayment(periodId: string | undefined) {
   const invalidar = () => {
     queryClient.invalidateQueries({ queryKey: ["pix-transfers", periodId] });
     queryClient.invalidateQueries({ queryKey: ["payroll-payments", periodId] });
+    queryClient.invalidateQueries({ queryKey: ["payroll-payable-lines", periodId] });
   };
 
   /** Passo 1: abre a transferência e dispara o código no WhatsApp. */
