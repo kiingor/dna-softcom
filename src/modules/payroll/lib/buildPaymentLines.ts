@@ -310,12 +310,18 @@ export function buildPaymentLines(entries: PayableEntryInput[]): PaymentLine[] {
 
   }
 
-  // Ordem estável: por nome do colaborador, depois pela descrição da linha.
-  lines.sort((a, b) => {
-    const cmp = a.collaboratorName.localeCompare(b.collaboratorName, "pt-BR");
-    if (cmp !== 0) return cmp;
-    return a.description.localeCompare(b.description, "pt-BR");
-  });
+  lines.sort(comparePaymentLines);
 
   return lines;
+}
+
+/**
+ * Ordem estável da listagem: por nome do colaborador, depois pela descrição da
+ * linha. Vale também pros pagamentos congelados, que o banco devolve por
+ * `entry_id` (um UUID) só pra paginar de forma estável.
+ */
+export function comparePaymentLines(a: PaymentLine, b: PaymentLine): number {
+  const cmp = a.collaboratorName.localeCompare(b.collaboratorName, "pt-BR");
+  if (cmp !== 0) return cmp;
+  return a.description.localeCompare(b.description, "pt-BR");
 }
