@@ -129,3 +129,22 @@ Não há atualização global de chaves históricas na migration.
 Validação: `npm test -- src/modules/payroll src/lib/payroll`. Os testes com
 PGlite executam as funções SQL e comparam os valores com o agrupamento do
 frontend, além de verificar reclassificação e rollback, sem acessar produção.
+
+### Retenção mensal de IRPF
+
+O cálculo em `src/lib/payroll/cltCalc.ts` e seu espelho Deno
+`supabase/functions/_shared/clt-calc.ts` comparam INSS + dependentes com o
+**desconto simplificado mensal de R$ 607,20**, usando a maior dedução sem somar
+os regimes. Após a redução de 2026, retenções mensais de até R$ 10,00 são
+zeradas. A base do redutor continua sendo o rendimento tributável bruto.
+
+Fontes: [Receita Federal — tabelas de 2026](https://www.gov.br/receitafederal/pt-br/assuntos/meu-imposto-de-renda/tabelas/2026),
+[exemplos da Receita](https://www.gov.br/receitafederal/pt-br/assuntos/meu-imposto-de-renda/tabelas/exemplos-de-aplicacao-da-lei-15-270-2025)
+e [Lei 9.430/1996, art. 67](https://www.planalto.gov.br/ccivil_03/leis/l9430compilada.htm).
+
+`applyMonthlyRules` permite separar a dedução/dispensa mensal do redutor. Por
+compatibilidade, o padrão acompanha `applyRedutor`; os fluxos separados que
+já passam `false` permanecem como estavam. Não há recálculo automático de
+folhas aprovadas: correções históricas exigem revisão e atualização específica.
+Testes cobrem o limite de retenção inclusivo, deduções mais favoráveis,
+exemplo oficial, proventos adicionais e paridade frontend/Deno.
