@@ -31,6 +31,7 @@ import {
 } from "../types";
 import {
   buildPaymentLines,
+  comparePaymentLines,
   paymentLineFromSnapshot,
   type FrozenPaymentLine,
   type PaymentLineComponent,
@@ -174,7 +175,9 @@ export function PaymentsTab({
     // Mesmo um resultado vazio é definitivo após a aprovação: não mostrar
     // uma nova simulação como se fosse o valor autorizado para pagamento.
     const useFrozen = folhaLiberada;
-    const lines = useFrozen ? frozenLines.map(paymentLineFromSnapshot) : buildPaymentLines(entries);
+    const lines = useFrozen
+      ? frozenLines.map(paymentLineFromSnapshot).sort(comparePaymentLines)
+      : buildPaymentLines(entries);
     const sourceById = new Map(entries.map((e) => [e.id, e]));
     const snapshotById = new Map(frozenLines.map((line) => [line.entry_id, line]));
 

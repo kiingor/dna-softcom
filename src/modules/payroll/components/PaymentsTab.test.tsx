@@ -29,12 +29,12 @@ function entry(type: PayrollEntryWithCollaborator["type"], value: number, extra 
   } as PayrollEntryWithCollaborator;
 }
 
-function frozen(entryId: string, amount: number, kind: FrozenPaymentLine["kind"]): FrozenPaymentLine {
+function frozen(entryId: string, amount: number, kind: FrozenPaymentLine["kind"], payeeName = "Ana Aprovada"): FrozenPaymentLine {
   return {
     entry_id: entryId, collaborator_id: "ana", kind,
     gross: amount, inss: 0, irpf: 0, other_deductions: 0, net_amount: amount,
     components: [{ entryId, type: entryId, label: entryId === "carro_agregado" ? "Carro Agregado" : "Salário Base", value: amount }],
-    discounts: [], payee_name: "Ana Aprovada", payee_document: null,
+    discounts: [], payee_name: payeeName, payee_document: null,
     payee_pix_key: "ana-aprovada@example.test",
   };
 }
@@ -84,6 +84,19 @@ describe("Pagamentos — consolidação na tela", () => {
     expect(screen.getByText(/2\.600,00/)).toBeInTheDocument();
     expect(screen.queryByText("Ana Atual")).not.toBeInTheDocument();
     expect(screen.queryByText(/3\.800,00/)).not.toBeInTheDocument();
+  });
+
+  it("lista pagamentos aprovados em ordem alfabética, e não na ordem em que o banco devolve", () => {
+    // O banco devolve por entry_id; aqui essa ordem é propositalmente embaralhada.
+    const names = ["VICENTE FERRER", "ANA CLAUDIA", "Vinicius da Conceição", "Ágata Souza", "GABRIELLY FELIX"];
+    renderPayments(
+      names.map((_, i) => entry("salario_base", 1000, { id: `e${i}` })),
+      "aprovado_diretoria",
+      names.map((name, i) => frozen(`e${i}`, 1000, "mensal", name)),
+    );
+    const order = screen.getAllByRole("checkbox").map((c) =>
+      c.getAttribute("aria-label")?.replace(/^Selecionar (.*) pra pagamento$/, "$1"));
+    expect(order).toEqual(["Ágata Souza", "ANA CLAUDIA", "GABRIELLY FELIX", "VICENTE FERRER", "Vinicius da Conceição"]);
   });
 
   it.each(["aprovado_diretoria", "closed", "exported"])("não substitui pagamentos aprovados ausentes por simulação local (%s)", (status) => {
