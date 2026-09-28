@@ -99,9 +99,22 @@ Na VPS, o frontend é publicado pelo serviço `web` de `deploy/frontend.yml`, co
 as variáveis de `deploy/frontend.env` do servidor. A API de produção é
 `https://api.dnasoftcom.com`; a configuração local do antigo Supabase Cloud não
 deve ser usada nesse build. Preserve os ajustes de produção: salário retroativo
-vem após salário base na mescla; reaprovar uma folha com PIX ou pagamento manual
-mantém o congelamento; visualizar e executar pagamentos exigem as permissões
-explícitas dos respectivos módulos, inclusive para `admin_gc`.
+vem após salário base na mescla. Visualizar e executar pagamentos exigem as
+permissões explícitas dos respectivos módulos, inclusive para `admin_gc`.
+
+Após `20260928193000_refresh_unpaid_payroll_on_approval.sql`, a reaprovação
+materializa os lançamentos atuais dos pagamentos pendentes, incluindo avulsos e
+remoções manuais de descontos. A aprovação não recalcula tabelas de encargos.
+Pagamentos já realizados ou com tentativa PIX não falha mantêm o snapshot
+inteiro; isso não impede corrigir os demais pagamentos da competência. Mensal
+mais férias formam um grupo protegido; custo setor continua independente.
+Componentes já pagos não reaparecem sob uma nova âncora. Tentativas recusadas
+preservam o histórico, e linhas pendentes existentes mantêm sua identidade.
+O builder e a marcação manual usam o mesmo lock por lançamento da abertura de
+PIX, inclusive quando ainda não há uma linha em `payroll_payments`.
+Não há atualização de competências existentes na migration; correções em uma
+folha já aprovada exigem operação específica e comparação dos pagamentos.
+As assinaturas públicas permanecem iguais, sem mudança nos tipos do cliente.
 
 O PIX das linhas pendentes acompanha alterações de chave/CPF no cadastro após
 `20260928180000_sync_pending_payroll_pix.sql`. Somente chave, tipo e normalização
