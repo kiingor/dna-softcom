@@ -64,6 +64,8 @@ export function useUpdateCollaborator() {
     onSuccess: (_data, args) => {
       queryClient.invalidateQueries({ queryKey: ["collaborator", args.collaboratorId] });
       queryClient.invalidateQueries({ queryKey: ["collaborators"] });
+      queryClient.invalidateQueries({ queryKey: ["payroll-entries"] });
+      queryClient.invalidateQueries({ queryKey: ["payroll-payable-lines"] });
     },
     onError: (err: Error) => {
       toast.error("Atualização falhou: " + err.message);

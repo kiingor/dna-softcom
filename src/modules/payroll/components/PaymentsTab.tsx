@@ -164,6 +164,10 @@ export function PaymentsTab({
       .eq("period_id", periodId)
       .order("entry_id")),
     enabled: !!periodId && folhaLiberada,
+    // O PIX pendente pode mudar pelo cadastro em outra aba/sessão.
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    refetchInterval: 30_000,
   });
 
   // A fórmula do líquido vive em ../lib/buildPaymentLines.ts — extraída daqui
