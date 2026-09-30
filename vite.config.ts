@@ -1,7 +1,6 @@
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
-import { componentTagger } from "lovable-tagger";
 
 /**
  * Injeta a Content-Security-Policy no `index.html` do build de produção.
@@ -84,7 +83,6 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [
       react(),
-      mode === "development" && componentTagger(),
       contentSecurityPolicy(env.VITE_SUPABASE_URL),
     ].filter(Boolean),
     resolve: {
