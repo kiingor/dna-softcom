@@ -51,6 +51,10 @@ export interface VacationRequest {
   gratifications: number;
   /** Bonificação livre (sem 1/3, sem tributar). */
   bonifications: number;
+  /** Total efetivamente pago, informado pelo RH. Não altera o cálculo da folha. */
+  paid_value: number | null;
+  paid_at: string | null;
+  paid_by: string | null;
   status: string;
   requested_by: string | null;
   approved_by: string | null;

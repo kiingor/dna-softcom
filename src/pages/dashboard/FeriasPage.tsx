@@ -3,6 +3,10 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import PermissionGuard from "@/components/dashboard/PermissionGuard";
 import { useDashboard } from "@/contexts/DashboardContext";
+import { usePermissions } from "@/hooks/usePermissions";
+import { VacationPaymentDialog } from "@/modules/ferias/components/VacationPaymentDialog";
+import { VACATION_PAYMENT_STATUSES } from "@/modules/ferias/services/vacation-payment.service";
+import { formatCurrency } from "@/lib/formatters";
 import { useVacationRequests, useVacationPeriods, useUpdateVacationRequest, useDeleteVacationRequest, useApproveVacationRequest, vacationRequestStatusLabels, vacationRequestStatusColors, vacationPeriodStatusLabels, vacationPeriodStatusColors, VacationRequest, VacationPeriod } from "@/hooks/useVacations";
 import VacationRequestModal from "@/components/ferias/VacationRequestModal";
 import VacationCalendar from "@/components/ferias/VacationCalendar";
@@ -28,6 +32,8 @@ import { toast } from "sonner";
 const FeriasPage = () => {
   const { hasAnyRole, user, currentCompany } = useDashboard();
   const canManage = hasAnyRole(["admin_gc", "gestor_gc", "gestor"]);
+  const vacationPermissions = usePermissions("ferias");
+  const canRecordPayment = canManage && vacationPermissions.canEdit && !vacationPermissions.isLoading;
 
   const { data: requests = [], isLoading: loadingRequests } = useVacationRequests();
   const { data: periods = [], isLoading: loadingPeriods } = useVacationPeriods();
@@ -62,6 +68,7 @@ const FeriasPage = () => {
   const [rejectionReason, setRejectionReason] = useState("");
   const [deletingRequest, setDeletingRequest] = useState<VacationRequest | null>(null);
   const [viewingRequest, setViewingRequest] = useState<VacationRequest | null>(null);
+  const [payingRequest, setPayingRequest] = useState<VacationRequest | null>(null);
   const [bulkImportOpen, setBulkImportOpen] = useState(false);
   const [adjustingPeriod, setAdjustingPeriod] = useState<VacationPeriod | null>(null);
 
@@ -448,6 +455,7 @@ const FeriasPage = () => {
                       <TableHead>Fim</TableHead>
                       <TableHead className="text-center">Dias</TableHead>
                       <TableHead className="text-center">Abono</TableHead>
+                      <TableHead className="text-right">Valor pago</TableHead>
                       <TableHead>Status</TableHead>
                       {canManage && <TableHead className="text-right">Ações</TableHead>}
                     </TableRow>
@@ -460,6 +468,7 @@ const FeriasPage = () => {
                         <TableCell>{format(parseISO(r.end_date), "dd/MM/yyyy")}</TableCell>
                         <TableCell className="text-center">{r.days_count}</TableCell>
                         <TableCell className="text-center">{r.sell_days > 0 ? r.sell_days : "—"}</TableCell>
+                        <TableCell className="text-right mono">{r.paid_value == null ? "Não informado" : formatCurrency(r.paid_value)}</TableCell>
                         <TableCell>
                           <Badge variant="outline" className={vacationRequestStatusColors[r.status] || ""}>
                             {vacationRequestStatusLabels[r.status] || r.status}
@@ -468,9 +477,14 @@ const FeriasPage = () => {
                         {canManage && (
                           <TableCell className="text-right">
                             <div className="flex items-center justify-end gap-1">
-                              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setViewingRequest(r)}>
+                              <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Ver detalhes da solicitação" onClick={() => setViewingRequest(r)}>
                                 <Eye className="w-4 h-4" />
                               </Button>
+                              {canRecordPayment && VACATION_PAYMENT_STATUSES.includes(r.status) && (
+                                <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setPayingRequest(r)}>
+                                  {r.paid_value == null ? "Registrar valor pago" : "Editar valor pago"}
+                                </Button>
+                              )}
                               {r.status === "pending" && (
                                 <>
                                   <Button variant="ghost" size="icon" className="h-8 w-8 text-success hover:text-success" onClick={() => handleApprove(r)}>
@@ -618,6 +632,9 @@ const FeriasPage = () => {
         </Tabs>
 
         {/* Request Modal */}
+        {payingRequest && payingRequest.company_id === currentCompany?.id && canRecordPayment && (
+          <VacationPaymentDialog key={payingRequest.id} request={payingRequest} onClose={() => setPayingRequest(null)} />
+        )}
         <VacationRequestModal open={requestModalOpen} onOpenChange={setRequestModalOpen} preSelectedCollaboratorId={requestModalCollaboratorId} />
 
         {/* Bulk Import Saldos */}
@@ -706,6 +723,10 @@ const FeriasPage = () => {
                   <div>
                     <p className="text-muted-foreground">Abono Pecuniário</p>
                     <p className="font-medium">{viewingRequest.sell_days > 0 ? `${viewingRequest.sell_days} dias` : "Não"}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Valor pago</p>
+                    <p className="font-medium mono">{viewingRequest.paid_value == null ? "Não informado" : formatCurrency(viewingRequest.paid_value)}</p>
                   </div>
                 </div>
                 {viewingRequest.notes && (
