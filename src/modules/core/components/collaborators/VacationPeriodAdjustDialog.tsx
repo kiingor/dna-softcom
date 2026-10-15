@@ -24,6 +24,7 @@ import {
 import { CircleNotch as Loader2, Sparkle } from "@phosphor-icons/react";
 import { toast } from "sonner";
 import { vacationPeriodStatusLabels, vacationPeriodStatusColors } from "@/hooks/useVacations";
+import { parseVacationDate, toVacationDateInputValue } from "@/modules/ferias/lib/vacation-dates";
 
 type VacationPeriod = {
   id: string;
@@ -38,6 +39,7 @@ type VacationPeriod = {
   days_sold: number;
   days_remaining: number;
   status: string;
+  manual_adjustment_notes?: string | null;
 };
 
 type Props = {
@@ -57,8 +59,6 @@ const situacaoFromStatus = (status: string): Situacao => {
   return "released";
 };
 
-const toDateInput = (v: string | null): string => (v ? v.slice(0, 10) : "");
-
 export function VacationPeriodAdjustDialog({ open, onOpenChange, period }: Props) {
   const queryClient = useQueryClient();
 
@@ -75,16 +75,20 @@ export function VacationPeriodAdjustDialog({ open, onOpenChange, period }: Props
 
   useEffect(() => {
     if (period) {
-      setStartDate(toDateInput(period.start_date));
-      setEndDate(toDateInput(period.end_date));
-      setGozoStart(toDateInput(period.gozo_start_date));
-      setGozoEnd(toDateInput(period.gozo_end_date));
-      setDataLimite(toDateInput(period.data_limite));
-      setDaysEntitled(period.days_entitled);
-      setDaysTaken(period.days_taken);
-      setDaysSold(period.days_sold);
+      setStartDate(toVacationDateInputValue(period.start_date));
+      setEndDate(toVacationDateInputValue(period.end_date));
+      setGozoStart(toVacationDateInputValue(period.gozo_start_date));
+      setGozoEnd(toVacationDateInputValue(period.gozo_end_date));
+      setDataLimite(toVacationDateInputValue(period.data_limite));
+      setDaysEntitled(
+        typeof period.days_entitled === "number" && period.days_entitled > 0
+          ? period.days_entitled
+          : 30,
+      );
+      setDaysTaken(typeof period.days_taken === "number" && period.days_taken >= 0 ? period.days_taken : 0);
+      setDaysSold(typeof period.days_sold === "number" && period.days_sold >= 0 ? period.days_sold : 0);
       setSituacao(situacaoFromStatus(period.status));
-      setNotes("");
+      setNotes(period.manual_adjustment_notes ?? "");
     }
   }, [period]);
 
@@ -93,6 +97,11 @@ export function VacationPeriodAdjustDialog({ open, onOpenChange, period }: Props
   const gozoIncompleto = !!gozoStart !== !!gozoEnd;
   const gozoInvertido = !!gozoStart && !!gozoEnd && gozoEnd < gozoStart;
   const competenciaInvertida = !!startDate && !!endDate && endDate < startDate;
+  const competenciaValida = !!parseVacationDate(startDate) && !!parseVacationDate(endDate);
+  const gozoValido =
+    (!gozoStart || !!parseVacationDate(gozoStart)) &&
+    (!gozoEnd || !!parseVacationDate(gozoEnd));
+  const dataLimiteValida = !dataLimite || !!parseVacationDate(dataLimite);
 
   // Status final previsto (espelha a normalização da RPC) — só pra mostrar o
   // rótulo certo antes de salvar.
@@ -110,8 +119,9 @@ export function VacationPeriodAdjustDialog({ open, onOpenChange, period }: Props
     gozoIncompleto ||
     gozoInvertido ||
     competenciaInvertida ||
-    !startDate ||
-    !endDate ||
+    !competenciaValida ||
+    !gozoValido ||
+    !dataLimiteValida ||
     daysEntitled <= 0;
 
   const marcarJaGozado = () => {
@@ -145,6 +155,7 @@ export function VacationPeriodAdjustDialog({ open, onOpenChange, period }: Props
       toast.success("Período atualizado");
       queryClient.invalidateQueries({ queryKey: ["vacation-periods-collaborator"] });
       queryClient.invalidateQueries({ queryKey: ["vacation-periods"] });
+      queryClient.invalidateQueries({ queryKey: ["collaborators-vacation-overview"] });
       // Aba Férias do cadastro (SubResourceTab kind="ferias") lê por esta key.
       queryClient.invalidateQueries({ queryKey: ["subresource-ferias"] });
       onOpenChange(false);
@@ -154,10 +165,9 @@ export function VacationPeriodAdjustDialog({ open, onOpenChange, period }: Props
     },
   });
 
-  if (!period) return null;
-
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open && !!period} onOpenChange={onOpenChange}>
+      {period && (
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Editar período aquisitivo</DialogTitle>
@@ -350,6 +360,7 @@ export function VacationPeriodAdjustDialog({ open, onOpenChange, period }: Props
           </Button>
         </DialogFooter>
       </DialogContent>
+      )}
     </Dialog>
   );
 }

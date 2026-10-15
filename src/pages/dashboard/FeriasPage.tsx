@@ -26,13 +26,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Plus, Clock, Users, CalendarCheck, Warning as AlertTriangle, MagnifyingGlass as Search, Check, X, CircleNotch as Loader2, Calendar, Trash as Trash2, Eye, UserCheck, UploadSimple, DotsThreeVertical, Pencil, FilePdf } from "@phosphor-icons/react";
 import { downloadVacationReceiptPdf } from "@/modules/ferias/services/vacation-receipt.service";
-import { format, parseISO, isAfter, addDays } from "date-fns";
+import { formatVacationDate, parseVacationDate, vacationConcessiveDeadline } from "@/modules/ferias/lib/vacation-dates";
+import { addDays } from "date-fns";
 import { toast } from "sonner";
 
 const FeriasPage = () => {
   const { hasAnyRole, user, currentCompany } = useDashboard();
-  const canManage = hasAnyRole(["admin_gc", "gestor_gc", "gestor"]);
   const vacationPermissions = usePermissions("ferias");
+  const canManage =
+    hasAnyRole(["admin", "admin_gc", "gestor_gc", "gestor", "rh", "diretoria"]) ||
+    Boolean(vacationPermissions.canEdit || vacationPermissions.canCreate);
   const canRecordPayment = canManage && vacationPermissions.canEdit && !vacationPermissions.isLoading;
 
   const { data: requests = [], isLoading: loadingRequests } = useVacationRequests();
@@ -80,8 +83,8 @@ const FeriasPage = () => {
     const in60Days = addDays(new Date(), 60);
     return periods.filter(p => {
       if (p.status !== "available" && p.status !== "partially_used") return false;
-      const concessiveEnd = addDays(parseISO(p.end_date), 365);
-      return concessiveEnd <= in60Days;
+      const concessiveEnd = vacationConcessiveDeadline(p);
+      return concessiveEnd !== null && concessiveEnd <= in60Days;
     }).length;
   }, [periods]);
 
@@ -112,7 +115,7 @@ const FeriasPage = () => {
         const collabPeriods = periods.filter(p => p.collaborator_id === collab.id);
         const activePeriod = collabPeriods.find(p => p.status === "available" || p.status === "partially_used");
         const pendingPeriod = collabPeriods.find(p => p.status === "pending");
-        const currentPeriod = activePeriod || pendingPeriod;
+        const currentPeriod = activePeriod || pendingPeriod || collabPeriods[0];
         const totalRemaining = collabPeriods
           .filter(p => p.status === "available" || p.status === "partially_used" || p.status === "pending")
           .reduce((sum, p) => sum + p.days_remaining, 0);
@@ -120,12 +123,7 @@ const FeriasPage = () => {
 
         // Vencimento concessivo: usa a Data Limite oficial da agenda quando
         // disponível; senão aproxima (12 meses após o fim da competência).
-        let concessiveDeadline: Date | null = null;
-        if (activePeriod) {
-          concessiveDeadline = activePeriod.data_limite
-            ? parseISO(activePeriod.data_limite)
-            : addDays(parseISO(activePeriod.end_date), 365);
-        }
+        const concessiveDeadline = activePeriod ? vacationConcessiveDeadline(activePeriod) : null;
 
         // Situação exibida na coluna (e base do filtro de Situação). Calculada
         // aqui — não no render — pra que o dropdown consiga filtrar por ela.
@@ -139,7 +137,7 @@ const FeriasPage = () => {
         } else if (activeRequest?.status === "approved") {
           situationLabel = "Férias Agendadas";
           situationClass = "bg-info/10 text-info border-info/25";
-        } else if (isOverdue) {
+        } else if (isOverdue || currentPeriod?.status === "expired") {
           situationLabel = "Vencido!";
           situationClass = "bg-destructive/10 text-destructive border-destructive/25";
         } else if (isExpiring) {
@@ -148,9 +146,12 @@ const FeriasPage = () => {
         } else if (currentPeriod?.status === "pending") {
           situationLabel = "Adquirindo";
           situationClass = "bg-info/5 text-info border-info/25";
-        } else if (currentPeriod?.status === "available") {
+        } else if (currentPeriod?.status === "available" || currentPeriod?.status === "partially_used") {
           situationLabel = "Disponível";
           situationClass = "bg-success/5 text-success border-success/25";
+        } else if (currentPeriod?.status === "used" || currentPeriod?.status === "paid") {
+          situationLabel = "Utilizado";
+          situationClass = "bg-muted text-muted-foreground";
         }
 
         return {
@@ -312,6 +313,7 @@ const FeriasPage = () => {
                   <SelectItem value="Férias Agendadas">Férias Agendadas</SelectItem>
                   <SelectItem value="Vencendo">Vencendo</SelectItem>
                   <SelectItem value="Vencido!">Vencido</SelectItem>
+                  <SelectItem value="Utilizado">Utilizado</SelectItem>
                   <SelectItem value="Sem período">Sem período</SelectItem>
                 </SelectContent>
               </Select>
@@ -345,12 +347,12 @@ const FeriasPage = () => {
                         <TableRow key={c.id} className="table-row-animate">
                           <TableCell className="font-medium">{c.name}</TableCell>
                           <TableCell>
-                            {c.admission_date ? format(parseISO(c.admission_date), "dd/MM/yyyy") : <span className="text-muted-foreground italic">Não informada</span>}
+                            {c.admission_date ? formatVacationDate(c.admission_date) : <span className="text-muted-foreground italic">Não informada</span>}
                           </TableCell>
                           <TableCell>
                             {c.currentPeriod ? (
                               <span className="text-sm">
-                                {format(parseISO(c.currentPeriod.start_date), "dd/MM/yy")} - {format(parseISO(c.currentPeriod.end_date), "dd/MM/yy")}
+                                {formatVacationDate(c.currentPeriod.start_date, "dd/MM/yy")} - {formatVacationDate(c.currentPeriod.end_date, "dd/MM/yy")}
                               </span>
                             ) : "—"}
                           </TableCell>
@@ -358,7 +360,7 @@ const FeriasPage = () => {
                           <TableCell>
                             {c.concessiveDeadline ? (
                               <span className={c.isOverdue ? "text-destructive font-semibold" : c.isExpiring ? "text-warning font-semibold" : ""}>
-                                {format(c.concessiveDeadline, "dd/MM/yyyy")}
+                                {formatVacationDate(c.concessiveDeadline)}
                               </span>
                             ) : "—"}
                           </TableCell>
@@ -378,13 +380,15 @@ const FeriasPage = () => {
                                     variant="ghost"
                                     size="icon"
                                     className="h-8 w-8"
-                                    disabled={!c.admission_date}
+                                    aria-label={`Ações para ${c.name}`}
+                                    disabled={!parseVacationDate(c.admission_date) && !c.currentPeriod}
                                   >
                                     <DotsThreeVertical className="w-4 h-4" />
                                   </Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
                                   <DropdownMenuItem
+                                    disabled={!parseVacationDate(c.admission_date) && !c.currentPeriod}
                                     onClick={() => {
                                       setRequestModalCollaboratorId(c.id);
                                       setRequestModalOpen(true);
@@ -464,8 +468,8 @@ const FeriasPage = () => {
                     {filteredRequests.map(r => (
                       <TableRow key={r.id} className="table-row-animate">
                         <TableCell className="font-medium">{r.collaborator?.name || "—"}</TableCell>
-                        <TableCell>{format(parseISO(r.start_date), "dd/MM/yyyy")}</TableCell>
-                        <TableCell>{format(parseISO(r.end_date), "dd/MM/yyyy")}</TableCell>
+                        <TableCell>{formatVacationDate(r.start_date)}</TableCell>
+                        <TableCell>{formatVacationDate(r.end_date)}</TableCell>
                         <TableCell className="text-center">{r.days_count}</TableCell>
                         <TableCell className="text-center">{r.sell_days > 0 ? r.sell_days : "—"}</TableCell>
                         <TableCell className="text-right mono">{r.paid_value == null ? "Não informado" : formatCurrency(r.paid_value)}</TableCell>
@@ -549,6 +553,7 @@ const FeriasPage = () => {
                   <SelectItem value="available">Disponível</SelectItem>
                   <SelectItem value="partially_used">Parcialmente Usado</SelectItem>
                   <SelectItem value="used">Utilizado</SelectItem>
+                  <SelectItem value="paid">Pago</SelectItem>
                   <SelectItem value="expired">Vencido</SelectItem>
                 </SelectContent>
               </Select>
@@ -585,15 +590,15 @@ const FeriasPage = () => {
                       <TableRow key={p.id} className="table-row-animate">
                         <TableCell className="font-medium">{p.collaborator?.name || "—"}</TableCell>
                         <TableCell>
-                          {format(parseISO(p.start_date), "dd/MM/yyyy")} - {format(parseISO(p.end_date), "dd/MM/yyyy")}
+                          {formatVacationDate(p.start_date)} - {formatVacationDate(p.end_date)}
                         </TableCell>
                         <TableCell>
                           {p.gozo_start_date && p.gozo_end_date
-                            ? `${format(parseISO(p.gozo_start_date), "dd/MM/yyyy")} - ${format(parseISO(p.gozo_end_date), "dd/MM/yyyy")}`
+                            ? `${formatVacationDate(p.gozo_start_date)} - ${formatVacationDate(p.gozo_end_date)}`
                             : "—"}
                         </TableCell>
                         <TableCell>
-                          {p.data_limite ? format(parseISO(p.data_limite), "dd/MM/yyyy") : "—"}
+                          {formatVacationDate(p.data_limite)}
                         </TableCell>
                         <TableCell className="text-center">{p.days_entitled}</TableCell>
                         <TableCell className="text-center">{p.days_taken}</TableCell>
@@ -710,11 +715,11 @@ const FeriasPage = () => {
                   </div>
                   <div>
                     <p className="text-muted-foreground">Início</p>
-                    <p className="font-medium">{format(parseISO(viewingRequest.start_date), "dd/MM/yyyy")}</p>
+                    <p className="font-medium">{formatVacationDate(viewingRequest.start_date)}</p>
                   </div>
                   <div>
                     <p className="text-muted-foreground">Fim</p>
-                    <p className="font-medium">{format(parseISO(viewingRequest.end_date), "dd/MM/yyyy")}</p>
+                    <p className="font-medium">{formatVacationDate(viewingRequest.end_date)}</p>
                   </div>
                   <div>
                     <p className="text-muted-foreground">Dias</p>
@@ -744,7 +749,7 @@ const FeriasPage = () => {
                 {viewingRequest.approved_at && (
                   <div>
                     <p className="text-muted-foreground">Data da decisão</p>
-                    <p className="font-medium">{format(parseISO(viewingRequest.approved_at), "dd/MM/yyyy HH:mm")}</p>
+                    <p className="font-medium">{formatVacationDate(viewingRequest.approved_at, "dd/MM/yyyy HH:mm")}</p>
                   </div>
                 )}
               </div>
