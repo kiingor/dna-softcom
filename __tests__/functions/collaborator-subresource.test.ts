@@ -209,4 +209,65 @@ describe("collaborator-subresource: criação manual de férias", () => {
       external_id: "456",
     });
   });
+
+  it("permite atualizar período local sem external_id mesmo com sincronização ligada e normaliza dias", async () => {
+    mocks.isAgendaSyncDisabled.mockReturnValue(false);
+    const updateEq = vi.fn().mockResolvedValue({ error: null });
+    const update = vi.fn(() => ({ eq: updateEq }));
+
+    mocks.createClient.mockReset();
+    mocks.createClient
+      .mockReturnValueOnce({
+        auth: { getUser: async () => ({ data: { user: { id: "user-id" } }, error: null }) },
+        rpc: async (fn: string, args: Record<string, unknown>) => {
+          if (fn === "is_company_admin") return { data: false, error: null };
+          if (fn === "get_user_permissions") {
+            return {
+              data: [{ can_edit: args._module === "ferias" }],
+              error: null,
+            };
+          }
+          return { data: null, error: null };
+        },
+      })
+      .mockReturnValueOnce({
+        from: (table: string) => {
+          if (table === "collaborators") {
+            return { select: () => ({ eq: () => ({ single: async () => ({ data: collab, error: null }) }) }) };
+          }
+          if (table === "vacation_periods") {
+            return {
+              select: () => ({ eq: () => ({ single: async () => ({ data: { external_id: null }, error: null }) }) }),
+              update,
+            };
+          }
+          throw new Error(`Unexpected table: ${table}`);
+        },
+      });
+
+    const response = await handler(
+      new Request("http://localhost/collaborator-subresource", {
+        method: "POST",
+        headers: { Authorization: "Bearer test-token", "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "update",
+          kind: "ferias",
+          collaboratorId: collab.id,
+          localId: "period-local-only",
+          data: { ...dates, days_entitled: null, days_taken: 10, days_sold: "" },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ success: true });
+    expect(mocks.updateSubResource).not.toHaveBeenCalled();
+    expect(update).toHaveBeenCalledWith({
+      ...dates,
+      days_entitled: 30,
+      days_taken: 10,
+      days_sold: 0,
+    });
+    expect(updateEq).toHaveBeenCalledWith("id", "period-local-only");
+  });
 });

@@ -6,6 +6,7 @@ import {
   useUpdateCollaborator,
 } from "@/hooks/useCollaboratorWriteBack";
 import { useDashboard } from "@/contexts/DashboardContext";
+import { usePermissions } from "@/hooks/usePermissions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -307,7 +308,13 @@ const CollaboratorModal = ({
   // Benefit assignment state
   const [selectedBenefitId, setSelectedBenefitId] = useState("");
 
-  const canManage = hasAnyRole(["admin", "admin_gc", "gestor_gc"]);
+  const collaboratorPermissions = usePermissions("colaboradores");
+  const vacationPermissions = usePermissions("ferias");
+  const canManage =
+    hasAnyRole(["admin", "admin_gc", "gestor_gc", "gestor", "rh", "diretoria"]) ||
+    Boolean(collaboratorPermissions.canEdit || collaboratorPermissions.canCreate);
+  const canManageVacations =
+    canManage || Boolean(vacationPermissions.canEdit || vacationPermissions.canCreate);
 
   // Tipos manuais que viram ficha fixa (espelha FIXED_MANUAL_TYPES do
   // use-payroll). Lançamento no cadastro = permanente: só esses tipos.
@@ -2801,7 +2808,7 @@ const CollaboratorModal = ({
                               {vacationPeriods.slice(0, 3).map((period: any) => (
                                 <div key={period.id} className="flex items-center justify-between text-sm gap-2">
                                   <span className="text-muted-foreground flex-1 min-w-0 truncate">
-                                    {new Date(period.start_date).toLocaleDateString("pt-BR")} - {new Date(period.end_date).toLocaleDateString("pt-BR")}
+                                    {formatDateBR(period.start_date)} - {formatDateBR(period.end_date)}
                                     {period.manual_adjustment_at && (
                                       <span className="ml-1 text-[10px] uppercase tracking-wide text-warning">· ajuste manual</span>
                                     )}
@@ -2809,20 +2816,22 @@ const CollaboratorModal = ({
                                   <Badge variant={
                                     period.status === "available" ? "default" :
                                     period.status === "partially_used" ? "secondary" :
-                                    period.status === "used" ? "outline" : "destructive"
+                                    period.status === "used" || period.status === "paid" ? "outline" : "destructive"
                                   } className="h-5 px-1.5 shrink-0">
                                     {period.days_remaining}d restantes
                                   </Badge>
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-6 w-6 shrink-0"
-                                    onClick={() => setAdjustingPeriod(period)}
-                                    title="Ajustar saldo manualmente"
-                                  >
-                                    <Pencil className="w-3.5 h-3.5" />
-                                  </Button>
+                                  {canManageVacations && (
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-6 w-6 shrink-0"
+                                      onClick={() => setAdjustingPeriod(period)}
+                                      title="Ajustar saldo manualmente"
+                                    >
+                                      <Pencil className="w-3.5 h-3.5" />
+                                    </Button>
+                                  )}
                                 </div>
                               ))}
                             </div>
@@ -2851,7 +2860,7 @@ const CollaboratorModal = ({
                                 <div key={request.id} className="p-3 rounded-lg bg-background border hover:border-primary/30 transition-colors">
                                   <div className="flex items-center justify-between mb-1">
                                     <span className="text-sm font-medium">
-                                      {new Date(request.start_date).toLocaleDateString("pt-BR")} - {new Date(request.end_date).toLocaleDateString("pt-BR")}
+                                      {formatDateBR(request.start_date)} - {formatDateBR(request.end_date)}
                                     </span>
                                     <Badge variant={statusColors[request.status] || "outline"} className="h-5 px-1.5">
                                       {statusLabels[request.status] || request.status}
@@ -3017,7 +3026,7 @@ const CollaboratorModal = ({
                       icon={<Palmtree className="w-6 h-6 text-primary" />}
                       emptyTitle="Sem períodos de férias"
                       emptyDescription="Nenhum período de férias registrado."
-                      canManage={canManage}
+                      canManage={canManageVacations}
                       fields={FERIAS_FIELDS}
                       onEditOverride={(row: any) => setAdjustingPeriod(row)}
                       renderRow={(row: any) => ({

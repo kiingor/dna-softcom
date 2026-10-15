@@ -376,7 +376,10 @@ serve(async (req) => {
 
   const requiredAction =
     action === "create" ? "can_create" : action === "update" ? "can_edit" : "can_delete";
-  const allowed = await checkPermission(sbUser, user.id, collab.company_id, "colaboradores", requiredAction);
+  const allowed =
+    (await checkPermission(sbUser, user.id, collab.company_id, "colaboradores", requiredAction)) ||
+    (kind === "ferias" &&
+      (await checkPermission(sbUser, user.id, collab.company_id, "ferias", requiredAction)));
   if (!allowed) return jsonResponse({ error: "Sem permissão" }, 403);
 
   const cfg = ENTITY_MAP[kind];
@@ -385,32 +388,16 @@ serve(async (req) => {
   // formato local (snake_case), então grava direto; external_id fica null.
   const syncOff = isAgendaSyncDisabled();
 
+  if ((action === "create" || action === "update") && kind === "ferias") {
+    try {
+      data = normalizeFeriasPayload(data);
+    } catch (err) {
+      return jsonResponse({ error: (err as Error).message }, 400);
+    }
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
   if (action === "create") {
-    if (kind === "ferias") {
-      try {
-        // Campos opcionais vazios chegam como null; isso não aciona os
-        // DEFAULTs do Postgres e viola o NOT NULL dos dias de férias.
-        const daysEntitled = vacationDays(data.days_entitled, 30);
-        const daysTaken = vacationDays(data.days_taken, 0);
-        const daysSold = vacationDays(data.days_sold, 0);
-        if (daysEntitled <= 0) throw new Error("Os dias de direito devem ser maiores que zero.");
-        if (daysTaken + daysSold > daysEntitled) {
-          throw new Error("A soma dos dias gozados e vendidos excede os dias de direito.");
-        }
-        if (typeof data.start_date !== "string" || !data.start_date ||
-            typeof data.end_date !== "string" || !data.end_date) {
-          throw new Error("Informe o início e o fim da competência.");
-        }
-        if (data.end_date < data.start_date) {
-          throw new Error("O fim da competência não pode ser antes do início.");
-        }
-        data = { ...data, days_entitled: daysEntitled, days_taken: daysTaken, days_sold: daysSold };
-      } catch (err) {
-        return jsonResponse({ error: (err as Error).message }, 400);
-      }
-    }
-
     if (syncOff) {
       const dataFiltered: Record<string, unknown> = { ...data };
       for (const f of cfg.localOnlyFields ?? []) {
@@ -480,14 +467,16 @@ serve(async (req) => {
       .select("external_id")
       .eq("id", localId!)
       .single();
-    if (itErr || !item?.external_id) {
+    if (itErr || !item) {
       return jsonResponse({ error: "Item não encontrado ou sem external_id" }, 404);
     }
-    try {
-      await updateSubResource(kind, collab.external_id!, item.external_id as string, cfg.toRemote(data));
-    } catch (err) {
-      const status = err instanceof SoftcomCloudError ? err.status : 502;
-      return jsonResponse({ error: "PUT na agenda falhou", details: (err as Error).message }, status);
+    if (item.external_id && collab.external_id) {
+      try {
+        await updateSubResource(kind, collab.external_id, String(item.external_id), cfg.toRemote(data));
+      } catch (err) {
+        const status = err instanceof SoftcomCloudError ? err.status : 502;
+        return jsonResponse({ error: "PUT na agenda falhou", details: (err as Error).message }, status);
+      }
     }
     const { error: updErr } = await sbAdmin.from(cfg.table).update(data).eq("id", localId!);
     if (updErr) return jsonResponse({ error: "Update local falhou (remoto ok)", details: updErr.message }, 500);
@@ -584,6 +573,28 @@ async function prunePlanoSaudeDeductions(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+
+function normalizeFeriasPayload(data: Record<string, unknown>): Record<string, unknown> {
+  // Campos opcionais vazios chegam como null; isso não aciona os
+  // DEFAULTs do Postgres e viola o NOT NULL dos dias de férias.
+  const daysEntitled = vacationDays(data.days_entitled, 30);
+  const daysTaken = vacationDays(data.days_taken, 0);
+  const daysSold = vacationDays(data.days_sold, 0);
+  if (daysEntitled <= 0) throw new Error("Os dias de direito devem ser maiores que zero.");
+  if (daysTaken + daysSold > daysEntitled) {
+    throw new Error("A soma dos dias gozados e vendidos excede os dias de direito.");
+  }
+  if (
+    typeof data.start_date !== "string" || !data.start_date ||
+    typeof data.end_date !== "string" || !data.end_date
+  ) {
+    throw new Error("Informe o início e o fim da competência.");
+  }
+  if (data.end_date < data.start_date) {
+    throw new Error("O fim da competência não pode ser antes do início.");
+  }
+  return { ...data, days_entitled: daysEntitled, days_taken: daysTaken, days_sold: daysSold };
+}
 
 function vacationDays(value: unknown, fallback: number): number {
   if (value === null || value === undefined || value === "") return fallback;

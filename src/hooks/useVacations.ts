@@ -702,6 +702,7 @@ export const vacationPeriodStatusLabels: Record<string, string> = {
   available: "Disponível",
   partially_used: "Parcialmente Usado",
   used: "Utilizado",
+  paid: "Pago",
   expired: "Vencido",
 };
 
@@ -710,5 +711,6 @@ export const vacationPeriodStatusColors: Record<string, string> = {
   available: "bg-success/10 text-success border-success/25",
   partially_used: "bg-warning/10 text-warning border-warning/25",
   used: "bg-gray-100 text-gray-800 border-gray-200",
+  paid: "bg-gray-100 text-gray-800 border-gray-200",
   expired: "bg-destructive/10 text-destructive border-destructive/25",
 };
