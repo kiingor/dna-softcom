@@ -46,6 +46,7 @@ import { toast } from "sonner";
 import { formatCPFInput, cleanCPF, validateCPF, formatPhoneInput, formatCEPInput, cleanCEP, BRAZIL_STATES } from "@/lib/validators";
 import { sendWhatsAppNotification } from "@/lib/whatsappNotifications";
 import { AGENDA_SYNC_DISABLED } from "@/lib/agenda-sync";
+import { edgeFunctionErrorMessage } from "@/lib/edge-function-error";
 import { formatCurrency, formatCurrencyForInput, formatNumberAsCurrency, parseCurrencyInput, getCurrentCompetencia, formatDateBR, toTitleCase } from "@/lib/formatters";
 import { calculateMonthlyBenefitValue, getBenefitCalculationDescription, DayAbbrev } from "@/lib/workingDays";
 import { calcAllTaxes } from "@/lib/payroll/cltCalc";
@@ -217,7 +218,7 @@ const CollaboratorModal = ({
     photo_url: "",
     password: "",
   });
-  const [showPasswordField, setShowPasswordField] = useState(false);
+  const [createPortalAccess, setCreatePortalAccess] = useState(false);
   const [isCreatingUser, setIsCreatingUser] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
@@ -608,6 +609,7 @@ const CollaboratorModal = ({
   // Reset form when modal opens
   useEffect(() => {
     if (open) {
+      setCreatePortalAccess(false);
       if (collaborator) {
         const c = collaborator as typeof collaborator & {
           rg?: string | null;
@@ -666,7 +668,6 @@ const CollaboratorModal = ({
           photo_url: cExtra.photo_url || "",
           password: "",
         });
-        setShowPasswordField(!c.user_id);
       } else {
         // Modal de "novo colaborador" — usa prefill se existir (vindo da
         // tela de admissão, p.ex.) pra deixar tudo preenchido.
@@ -706,7 +707,6 @@ const CollaboratorModal = ({
           photo_url: "",
           password: "",
         });
-        setShowPasswordField(false);
         setPendingEntries([]);
         setPendingBenefits([]);
       }
@@ -1011,7 +1011,12 @@ const CollaboratorModal = ({
       }
     }
 
-    if (formData.password && !isPasswordLongEnough(formData.password)) {
+    const shouldCreatePortalAccess = createPortalAccess && !collaborator?.user_id;
+    if (shouldCreatePortalAccess && !formData.email.trim()) {
+      toast.error("Informe o email para criar o acesso ao Portal.");
+      return;
+    }
+    if (shouldCreatePortalAccess && !isPasswordLongEnough(formData.password)) {
       toast.error(PASSWORD_TOO_SHORT);
       return;
     }
@@ -1021,7 +1026,7 @@ const CollaboratorModal = ({
     try {
       let userId: string | null = null;
 
-      if (formData.email.trim() && formData.password) {
+      if (shouldCreatePortalAccess) {
         setIsCreatingUser(true);
         const normalizedEmail = formData.email.trim().toLowerCase();
         
@@ -1038,8 +1043,8 @@ const CollaboratorModal = ({
         );
 
         if (createError) {
-          console.error("Edge function error:", createError);
-          toast.error("Erro ao criar acesso: " + createError.message);
+          const message = await edgeFunctionErrorMessage(createError, "Não foi possível criar o acesso ao Portal.");
+          toast.error("Erro ao criar acesso: " + message + " Desative a opção de criar acesso para salvar somente o cadastro.");
           setIsCreatingUser(false);
           return;
         }
@@ -1047,6 +1052,7 @@ const CollaboratorModal = ({
         if (createData?.error) {
           toast.error(createData.error);
           setIsCreatingUser(false);
+          return;
         } else if (createData?.user_id) {
           userId = createData.user_id;
         }
@@ -2038,12 +2044,7 @@ const CollaboratorModal = ({
                         id="email"
                         type="email"
                         value={formData.email}
-                        onChange={(e) => {
-                          setFormData((prev) => ({ ...prev, email: e.target.value }));
-                          if (e.target.value.trim() && (isNew || showPasswordField)) {
-                            setShowPasswordField(true);
-                          }
-                        }}
+                        onChange={(e) => setFormData((prev) => ({ ...prev, email: e.target.value }))}
                         placeholder="email@exemplo.com"
                       />
                     </div>
@@ -2073,27 +2074,42 @@ const CollaboratorModal = ({
                     </div>
                   </div>
 
-                  {/* Password Field */}
-                  {formData.email.trim() && showPasswordField && (
+                  {/* A criação de acesso exige escolha explícita, inclusive com autofill. */}
+                  {!collaborator?.user_id && (
                     <div className="space-y-2 p-4 bg-muted/50 rounded-lg border border-dashed">
                       <div className="flex items-center gap-2">
-                        <Label htmlFor="password" className="text-sm font-medium">
-                          Senha de Acesso ao Portal
+                        <Switch
+                          id="create_portal_access"
+                          checked={createPortalAccess}
+                          onCheckedChange={(checked) => {
+                            setCreatePortalAccess(checked);
+                            setFormData((prev) => ({ ...prev, password: "" }));
+                          }}
+                        />
+                        <Label htmlFor="create_portal_access" className="text-sm font-medium">
+                          Criar acesso ao Portal
                         </Label>
                         <Badge variant="secondary" >
                           Opcional
                         </Badge>
                       </div>
-                      <Input
-                        id="password"
-                        type="password"
-                        value={formData.password}
-                        onChange={(e) => setFormData((prev) => ({ ...prev, password: e.target.value }))}
-                        placeholder={PASSWORD_HINT}
-                        minLength={MIN_PASSWORD_LENGTH}
-                      />
+                      {createPortalAccess && (
+                        <div className="space-y-2">
+                          <Label htmlFor="portal_access_password">Senha de acesso ao Portal</Label>
+                          <Input
+                            id="portal_access_password"
+                            name="portal_access_password"
+                            type="password"
+                            autoComplete="new-password"
+                            value={formData.password}
+                            onChange={(e) => setFormData((prev) => ({ ...prev, password: e.target.value }))}
+                            placeholder={PASSWORD_HINT}
+                            minLength={MIN_PASSWORD_LENGTH}
+                          />
+                        </div>
+                      )}
                       <p className="text-xs text-muted-foreground">
-                        Se preenchida, o colaborador poderá acessar o Portal do Colaborador com este email e senha.
+                        Ative para criar um login com o email do cadastro. Você pode salvar os dados e criar o acesso depois.
                       </p>
                     </div>
                   )}

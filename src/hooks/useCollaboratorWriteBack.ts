@@ -10,6 +10,7 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { edgeFunctionErrorMessage } from "@/lib/edge-function-error";
 import { toast } from "sonner";
 
 // As mesmas seções aceitas pelo edge function collaborator-update
@@ -54,7 +55,7 @@ export function useUpdateCollaborator() {
           syncToRemote: args.syncToRemote ?? true,
         },
       });
-      if (error) throw new Error(error.message ?? "Falha na chamada.");
+      if (error) throw new Error(await edgeFunctionErrorMessage(error, "Falha na chamada."));
       if (data && typeof data === "object" && "error" in data) {
         const err = data as { error: string; details?: string };
         throw new Error(err.details ? `${err.error}: ${err.details}` : err.error);
@@ -89,7 +90,7 @@ export function useCreateCollaborator() {
           syncToRemote: args.syncToRemote ?? true,
         },
       });
-      if (error) throw new Error(error.message ?? "Falha na chamada.");
+      if (error) throw new Error(await edgeFunctionErrorMessage(error, "Falha na chamada."));
       if (data && typeof data === "object" && "error" in data) {
         const err = data as { error: string; details?: string };
         throw new Error(err.details ? `${err.error}: ${err.details}` : err.error);
