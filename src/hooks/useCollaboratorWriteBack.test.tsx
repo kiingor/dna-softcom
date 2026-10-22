@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import { FunctionsHttpError } from "@supabase/supabase-js";
 import type { PropsWithChildren } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useUpdateCollaborator } from "./useCollaboratorWriteBack";
@@ -39,5 +40,39 @@ describe("cache da folha após correção de PIX", () => {
     await act(() => result.current.cancel.mutateAsync("entry"));
     expect(client.getQueryState(linesKey)?.isInvalidated).toBe(true);
     expect(invoke).toHaveBeenCalledWith("payroll-pix-pay", { body: { entry_id: "entry", action: "cancel" } });
+  });
+});
+
+describe("erro ao salvar o cadastro", () => {
+  it.each([403, 500])("mostra a mensagem da aplicação no HTTP %s sem expor detalhes do banco", async (status) => {
+    setup();
+    const message = status === 403
+      ? "Sem permissão para editar colaboradores nesta empresa."
+      : "Não foi possível salvar o cadastro.";
+    const response = new Response(JSON.stringify({
+      error: message, details: "Dado privado que não deve aparecer", sentPayload: { pix_key: "private@example.invalid" },
+    }), { status });
+    invoke.mockResolvedValue({ data: null, error: new FunctionsHttpError(response) });
+    const { result } = renderHook(useUpdateCollaborator, { wrapper });
+    await act(async () => {
+      await expect(result.current.mutateAsync({
+        collaboratorId: "person", section: "identificacao", data: { pix_key: "new@example.invalid" },
+      })).rejects.toThrow(message);
+    });
+    await waitFor(() => expect(result.current.error?.message).toBe(message));
+    expect(response.bodyUsed).toBe(false);
+    expect(client.getQueryState(linesKey)?.isInvalidated).toBe(false);
+  });
+
+  it("mantém o erro original se a resposta HTTP não contém JSON", async () => {
+    setup();
+    const error = new FunctionsHttpError(new Response("Bad Gateway", { status: 502 }));
+    invoke.mockResolvedValue({ data: null, error });
+    const { result } = renderHook(useUpdateCollaborator, { wrapper });
+    await act(async () => {
+      await expect(result.current.mutateAsync({
+        collaboratorId: "person", section: "identificacao", data: { pix_key: "new@example.invalid" },
+      })).rejects.toThrow(error.message);
+    });
   });
 });
