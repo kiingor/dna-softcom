@@ -29,6 +29,10 @@ export function useAdmissionDocuments(journeyId: string | undefined) {
       return (data ?? []) as AdmissionDocument[];
     },
     enabled: !!journeyId,
+    // O candidato envia em outra sessão; o cache do painel não é invalidado lá.
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    refetchInterval: 15_000,
   });
 
   const approveDocument = useMutation({
