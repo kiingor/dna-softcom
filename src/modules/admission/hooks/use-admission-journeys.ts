@@ -79,6 +79,9 @@ export function useAdmissionJourneys(options: UseAdmissionJourneysOptions = {}) 
       return (data ?? []) as AdmissionJourneyWithCounts[];
     },
     enabled: !!companyId,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    refetchInterval: 15_000,
   });
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -490,6 +493,9 @@ export function useAdmissionJourney(id: string | undefined) {
       return data as AdmissionJourney;
     },
     enabled: !!id,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    refetchInterval: 15_000,
   });
 }
 

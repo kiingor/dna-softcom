@@ -23,6 +23,9 @@ export function useAdmissionEvents(journeyId: string | undefined) {
       return (data ?? []) as AdmissionEvent[];
     },
     enabled: !!journeyId,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    refetchInterval: 15_000,
   });
 
   const addNote = useMutation({

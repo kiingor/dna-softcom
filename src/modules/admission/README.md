@@ -45,6 +45,12 @@ Não use esse caminho diretamente em `href`: o navegador o interpreta como uma
 rota do frontend e exibe 404. Falhas ao gerar o link fecham a aba provisória e
 exibem uma mensagem com opção de tentar novamente pelo botão.
 
+Os envios pelo link do candidato acontecem em outra sessão. Por isso, as
+consultas do painel (documentos, histórico, detalhe e lista de admissões) buscam
+novidades a cada 15 segundos enquanto a aba está visível e ao retornar à aba ou
+reabrir a tela. Elas não herdam o cache global de cinco minutos sem atualização
+ao recuperar o foco. Uma consulta em andamento mantém os dados já exibidos.
+
 ## Diferenciação por regime
 
 | | CLT | PJ | Estagiário |
