@@ -2,14 +2,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   serve: vi.fn(), createClient: vi.fn(), listFeedbacks: vi.fn(),
+  createObjetivo: vi.fn(), updateObjetivo: vi.fn(), listObjetivos: vi.fn(),
 }));
 
 vi.mock("https://deno.land/std@0.190.0/http/server.ts", () => ({ serve: mocks.serve }));
 vi.mock("https://esm.sh/@supabase/supabase-js@2.49.0", () => ({ createClient: mocks.createClient }));
 vi.mock("../../supabase/functions/_shared/softcom-cloud.ts", () => ({
   listFeedbacks: mocks.listFeedbacks,
-  buscaColaborador: vi.fn(), createObjetivo: vi.fn(), deleteObjetivo: vi.fn(),
-  listObjetivos: vi.fn(), updateObjetivo: vi.fn(), SoftcomCloudError: class extends Error {},
+  buscaColaborador: vi.fn(), createObjetivo: mocks.createObjetivo, deleteObjetivo: vi.fn(),
+  listObjetivos: mocks.listObjetivos, updateObjetivo: mocks.updateObjetivo,
+  SoftcomCloudError: class extends Error { constructor(public status: number, message: string) { super(message); } },
 }));
 
 await import("../../supabase/functions/feedbacks/index.ts");
@@ -111,5 +113,65 @@ describe("datas de admissão no painel de feedback", () => {
     expect(inIds.mock.calls.map((call) => call[1].length)).toEqual([200, 200, 1]);
     expect(result.colaboradores).toHaveLength(401);
     expect(result.colaboradores[400]).toMatchObject({ id: 401, dataAdmissao: "2025-09-08" });
+  });
+});
+
+describe("gravação de feedback Cultura", () => {
+  const campaign = "11111111-1111-4111-8111-111111111111";
+  const culture = "22222222-2222-4222-8222-222222222222";
+  const input = { tipo: "Cultura", campanhaId: campaign, culturaId: culture, comentario: "Exemplo", mostrarSuporte: false, lancamentoUsuarioId: 8 };
+  const upsert = vi.fn();
+  const maybeSingle = vi.fn();
+  const query = { select: vi.fn(), eq: vi.fn(), maybeSingle, upsert };
+  function request(data = input) {
+    return handler(new Request("http://localhost/feedbacks", {
+      method: "POST", headers: { Authorization: "Bearer test-token", "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "objetivo-create", companyId: "company-id", colaboradorId: 7, data }),
+    }));
+  }
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.stubGlobal("Deno", { env: { get: () => "test-value" } });
+    rpc.mockResolvedValue({ data: true });
+    query.select.mockReturnValue(query); query.eq.mockReturnValue(query);
+    maybeSingle.mockResolvedValue({ data: { is_active: true }, error: null });
+    upsert.mockResolvedValue({ error: null });
+    mocks.createObjetivo.mockResolvedValue({ id: 42, tipo: "Cultura" });
+    mocks.createClient.mockReturnValueOnce({ auth: { getUser: async () => ({ data: { user: { id: "user-id" } } }) }, rpc })
+      .mockReturnValueOnce({ from: () => query });
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("grava o feedback uma vez e vincula as escolhas ao ID retornado pela Agenda", async () => {
+    const response = await request();
+    expect(response.status).toBe(200);
+    expect(mocks.createObjetivo).toHaveBeenCalledExactlyOnceWith(7, {
+      tipo: "Cultura", comentario: "Exemplo", mostrarSuporte: false, lancamentoUsuarioId: 8,
+    });
+    expect(upsert).toHaveBeenCalledWith(expect.objectContaining({ company_id: "company-id", agenda_objective_id: 42, campaign_id: campaign, culture_id: culture }), expect.any(Object));
+  });
+  it("nega opção inválida antes de criar qualquer feedback", async () => {
+    const response = await request({ ...input, culturaId: "" });
+    expect(response.status).toBe(400);
+    expect(mocks.createObjetivo).not.toHaveBeenCalled();
+    expect(upsert).not.toHaveBeenCalled();
+  });
+  it("não escreve metadados se a Agenda falhar", async () => {
+    mocks.createObjetivo.mockRejectedValue(new Error("Agenda indisponível"));
+    expect((await request()).status).toBe(500);
+    expect(upsert).not.toHaveBeenCalled();
+  });
+  it("retorna o ID criado e aviso de reparo se só a classificação falhar", async () => {
+    upsert.mockResolvedValue({ error: {} });
+    const response = await request();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ success: true, item: { id: 42 }, warning: expect.stringContaining("Abra a edição") });
+    expect(mocks.createObjetivo).toHaveBeenCalledTimes(1);
+  });
+  it("nega a criação sem permissão antes de ler opções ou chamar a Agenda", async () => {
+    rpc.mockResolvedValue({ data: false });
+    expect((await request()).status).toBe(403);
+    expect(maybeSingle).not.toHaveBeenCalled();
+    expect(mocks.createObjetivo).not.toHaveBeenCalled();
   });
 });

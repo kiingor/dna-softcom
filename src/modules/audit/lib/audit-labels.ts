@@ -22,6 +22,9 @@ export const TABLE_LABELS: Record<string, string> = {
   job_openings: "Vagas",
   interview_schedules: "Entrevistas (agenda)",
   interview_feedbacks: "Feedback de entrevistas",
+  feedback_campaigns: "Campanhas de feedback",
+  feedback_cultures: "Culturas de feedback",
+  feedback_classifications: "Classificação de feedback",
 
   // Admissões
   admission_journeys: "Admissões",
@@ -81,6 +84,13 @@ export const COLUMN_LABELS: Record<string, string> = {
   "*.is_active": "Ativo",
   "*.company_id": "Empresa",
   "*.deletion_reason": "Motivo da exclusão",
+  "feedback_campaigns.name": "Campanha",
+  "feedback_cultures.name": "Cultura",
+  "feedback_classifications.agenda_objective_id": "Feedback na Agenda",
+  "feedback_classifications.agenda_collaborator_id": "Colaborador na Agenda",
+  "feedback_classifications.campaign_id": "Campanha",
+  "feedback_classifications.culture_id": "Cultura",
+  "feedback_classifications.updated_by": "Atualizado por",
 
   // collaborators
   "collaborators.name": "Nome",

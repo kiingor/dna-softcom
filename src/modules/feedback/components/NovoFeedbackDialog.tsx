@@ -23,6 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { GuardiaoSelect } from "./GuardiaoSelect";
+import { CultureFields } from "./CultureFields";
 import { objetivoSchema, type ObjetivoFormValues } from "../schemas/objetivo.schema";
 import { OBJETIVO_TIPOS, type Guardiao } from "../types";
 import { useObjetivoMutations } from "../hooks/use-feedbacks";
@@ -40,13 +41,13 @@ export function NovoFeedbackDialog({ open, onOpenChange, guardiao }: Props) {
 
   const form = useForm<ObjetivoFormValues>({
     resolver: zodResolver(objetivoSchema),
-    defaultValues: { tipo: "", comentario: "", mostrarSuporte: false },
+    defaultValues: { tipo: "", comentario: "", mostrarSuporte: false, campanhaId: "", culturaId: "" },
   });
 
   useEffect(() => {
     if (open) {
       setColaborador(null);
-      form.reset({ tipo: "", comentario: "", mostrarSuporte: false });
+      form.reset({ tipo: "", comentario: "", mostrarSuporte: false, campanhaId: "", culturaId: "" });
     }
   }, [open, form]);
 
@@ -67,13 +68,15 @@ export function NovoFeedbackDialog({ open, onOpenChange, guardiao }: Props) {
       tipo: values.tipo,
       comentario: values.comentario,
       mostrarSuporte: values.mostrarSuporte,
+      campanhaId: values.campanhaId,
+      culturaId: values.culturaId,
     });
     onOpenChange(false);
   });
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-lg max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Novo feedback</DialogTitle>
           <DialogDescription>
@@ -83,7 +86,7 @@ export function NovoFeedbackDialog({ open, onOpenChange, guardiao }: Props) {
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-5">
+        <form onSubmit={handleSubmit} className="min-w-0 space-y-5">
           <div className="space-y-2">
             <Label>Colaborador</Label>
             <GuardiaoSelect
@@ -103,7 +106,7 @@ export function NovoFeedbackDialog({ open, onOpenChange, guardiao }: Props) {
               onValueChange={(v) => form.setValue("tipo", v, { shouldValidate: true })}
             >
               <SelectTrigger id="novo-tipo">
-                <SelectValue placeholder="Comentário ou Objetivo?" />
+                <SelectValue placeholder="Selecione o tipo de feedback" />
               </SelectTrigger>
               <SelectContent>
                 {OBJETIVO_TIPOS.map((t) => (
@@ -117,6 +120,8 @@ export function NovoFeedbackDialog({ open, onOpenChange, guardiao }: Props) {
               <p className="text-sm text-destructive">{form.formState.errors.tipo.message}</p>
             )}
           </div>
+
+          <CultureFields form={form} open={open} prefix="novo" />
 
           <div className="space-y-2">
             <Label htmlFor="novo-comentario">Comentário</Label>

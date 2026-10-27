@@ -53,6 +53,21 @@ export interface Objetivo {
   mostrarSuporte: boolean;
   lancamentoUsuarioId: number;
   lancamentoDatas: string | null;
+  campanhaId?: string | null;
+  campanhaNome?: string | null;
+  culturaId?: string | null;
+  culturaNome?: string | null;
+}
+
+export type FeedbackOptionKind = "campaign" | "culture";
+export interface FeedbackOption {
+  id: string;
+  name: string;
+  is_active: boolean;
+}
+export interface FeedbackOptions {
+  campaigns: FeedbackOption[];
+  cultures: FeedbackOption[];
 }
 
 /** Guardião(ã) da Cultura selecionado — quem lança os feedbacks. */
@@ -63,12 +78,12 @@ export interface Guardiao {
 
 /**
  * Opções fixas do Select de tipo no form. O legado guarda `Tipo` como texto
- * livre; o RH só lança "Comentário" ou "Objetivo". Se a agenda esperar
- * "Comentario" sem acento, basta trocar o `value` aqui (o label permanece).
+ * livre. Campanha e cultura são classificações administradas no DNA.
  */
 export const OBJETIVO_TIPOS = [
   { value: "Comentário", label: "Comentário" },
   { value: "Objetivo", label: "Objetivo" },
+  { value: "Cultura", label: "Cultura" },
 ] as const;
 
 /** Ordem das colunas: ação primeiro, saudável por último. */

@@ -15,6 +15,8 @@ export interface ObjetivoPayload {
   datas?: string;
   /** Só a data (`YYYY-MM-DD`). */
   lancamentoDatas?: string;
+  campanhaId?: string;
+  culturaId?: string;
 }
 
 async function invoke<T>(body: Record<string, unknown>): Promise<T> {
@@ -50,7 +52,7 @@ export const feedbackService = {
     invoke<Objetivo[]>({ action: "objetivos-list", companyId, colaboradorId }),
 
   createObjetivo: (companyId: string, colaboradorId: number, data: ObjetivoPayload) =>
-    invoke<{ success: boolean; item: Objetivo }>({
+    invoke<{ success: boolean; item: Objetivo; warning?: string }>({
       action: "objetivo-create",
       companyId,
       colaboradorId,
@@ -63,7 +65,7 @@ export const feedbackService = {
     itemId: number,
     data: ObjetivoPayload,
   ) =>
-    invoke<{ success: boolean }>({
+    invoke<{ success: boolean; warning?: string }>({
       action: "objetivo-update",
       companyId,
       colaboradorId,
@@ -72,7 +74,7 @@ export const feedbackService = {
     }),
 
   deleteObjetivo: (companyId: string, colaboradorId: number, itemId: number) =>
-    invoke<{ success: boolean }>({
+    invoke<{ success: boolean; warning?: string }>({
       action: "objetivo-delete",
       companyId,
       colaboradorId,

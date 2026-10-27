@@ -2,8 +2,8 @@
 //
 // Proxy AO VIVO (sem espelho local) pro painel de Feedback do Colaborador /
 // Guardião da Cultura na API legada api.softcom.cloud. Diferente de
-// `collaborator-subresource`, NÃO grava em tabela local. Complementa o painel
-// com a data de admissão do cadastro do DNA para segmentação por tempo de casa.
+// `collaborator-subresource`, não replica o conteúdo do feedback. Complementa o
+// painel com datas de admissão e mantém campanha/cultura em tabelas do DNA.
 //
 // Body:
 //   {
@@ -33,6 +33,7 @@ import {
   SoftcomCloudError,
   updateObjetivo,
 } from "../_shared/softcom-cloud.ts";
+import { enrichClassifications, prepareClassification, saveClassification } from "./classification.ts";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -140,31 +141,36 @@ serve(async (req) => {
       }
       case "objetivos-list": {
         const colaboradorId = requireNum(body.colaboradorId, "colaboradorId");
-        return jsonResponse(await listObjetivos(colaboradorId));
+        const items = await listObjetivos(colaboradorId);
+        const db = createClient(supabaseUrl, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+        return jsonResponse(await enrichClassifications(db, companyId, colaboradorId, items));
       }
       case "objetivo-create": {
         const colaboradorId = requireNum(body.colaboradorId, "colaboradorId");
-        const result = await createObjetivo(
-          colaboradorId,
-          (body.data ?? {}) as Record<string, unknown>,
-        );
-        return jsonResponse({ success: true, item: result });
+        const db = createClient(supabaseUrl, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+        const { agendaData, selection } = await prepareClassification(db, companyId, colaboradorId, requireData(body.data));
+        const result = await createObjetivo(colaboradorId, agendaData);
+        // Comentários/objetivos novos não possuem classificação a remover.
+        const warning = selection ? await saveClassification(db, companyId, colaboradorId, result.id, user.id, selection) : undefined;
+        return jsonResponse({ success: true, item: result, warning });
       }
       case "objetivo-update": {
         const colaboradorId = requireNum(body.colaboradorId, "colaboradorId");
         const itemId = requireNum(body.itemId, "itemId");
-        await updateObjetivo(
-          colaboradorId,
-          itemId,
-          (body.data ?? {}) as Record<string, unknown>,
-        );
-        return jsonResponse({ success: true });
+        const db = createClient(supabaseUrl, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+        const { agendaData, selection } = await prepareClassification(db, companyId, colaboradorId, requireData(body.data), itemId);
+        await updateObjetivo(colaboradorId, itemId, agendaData);
+        const warning = await saveClassification(db, companyId, colaboradorId, itemId, user.id, selection);
+        return jsonResponse({ success: true, warning });
       }
       case "objetivo-delete": {
         const colaboradorId = requireNum(body.colaboradorId, "colaboradorId");
         const itemId = requireNum(body.itemId, "itemId");
         await deleteObjetivo(colaboradorId, itemId);
-        return jsonResponse({ success: true });
+        const db = createClient(supabaseUrl, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+        const cleanupWarning = await saveClassification(db, companyId, colaboradorId, itemId, user.id, null);
+        return jsonResponse({ success: true, warning: cleanupWarning
+          ? "Feedback removido da Agenda. A limpeza do vínculo local de campanha e cultura ficou pendente." : undefined });
       }
     }
   } catch (err) {
@@ -187,8 +193,15 @@ function numOrUndef(v: unknown): number | undefined {
 
 function requireNum(v: unknown, field: string): number {
   const n = numOrUndef(v);
-  if (n == null) throw new SoftcomCloudError(400, `${field} obrigatório/ inválido`);
+  if (n == null || !Number.isSafeInteger(n) || n <= 0) throw new SoftcomCloudError(400, `${field} obrigatório/ inválido`);
   return n;
+}
+
+function requireData(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new SoftcomCloudError(400, "Dados do feedback inválidos.");
+  }
+  return value as Record<string, unknown>;
 }
 
 async function checkPermission(

@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   MagnifyingGlass as Search,
   Lock,
@@ -6,6 +7,7 @@ import {
   ChatCircleText,
   Info,
   Plus,
+  GearSix,
 } from "@phosphor-icons/react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -41,6 +43,7 @@ import {
 export default function FeedbackColaboradorPage() {
   const { canView, canCreate, canEdit, canDelete, isLoading: permsLoading } =
     usePermissions("feedback");
+  const { canView: canConfigure } = usePermissions("configuracoes");
 
   const [guardiao, setGuardiao] = useState<Guardiao | null>(null);
   const [nameFilter, setNameFilter] = useState("");
@@ -158,6 +161,9 @@ export default function FeedbackColaboradorPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {canConfigure && <Button variant="outline" asChild>
+            <Link to="/dashboard/configuracoes?tab=feedback"><GearSix className="w-4 h-4 mr-2" />Configurar</Link>
+          </Button>}
           {canCreate && (
             <Tooltip>
               <TooltipTrigger asChild>

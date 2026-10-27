@@ -23,6 +23,7 @@ import {
 import { CircleNotch as Loader2 } from "@phosphor-icons/react";
 import { objetivoSchema, type ObjetivoFormValues } from "../schemas/objetivo.schema";
 import { OBJETIVO_TIPOS, type Objetivo } from "../types";
+import { CultureFields } from "./CultureFields";
 
 interface Props {
   open: boolean;
@@ -47,7 +48,7 @@ export function ObjetivoForm({
 
   const form = useForm<ObjetivoFormValues>({
     resolver: zodResolver(objetivoSchema),
-    defaultValues: { tipo: "", comentario: "", mostrarSuporte: false },
+    defaultValues: { tipo: "", comentario: "", mostrarSuporte: false, campanhaId: "", culturaId: "" },
   });
 
   useEffect(() => {
@@ -58,8 +59,10 @@ export function ObjetivoForm({
               tipo: initial.tipo ?? "",
               comentario: initial.comentario ?? "",
               mostrarSuporte: initial.mostrarSuporte,
+              campanhaId: initial.campanhaId ?? "",
+              culturaId: initial.culturaId ?? "",
             }
-          : { tipo: "", comentario: "", mostrarSuporte: false },
+          : { tipo: "", comentario: "", mostrarSuporte: false, campanhaId: "", culturaId: "" },
       );
     }
   }, [open, initial, form]);
@@ -79,7 +82,7 @@ export function ObjetivoForm({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-lg max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{isEdit ? "Editar feedback" : "Novo feedback"}</DialogTitle>
           <DialogDescription>
@@ -91,12 +94,12 @@ export function ObjetivoForm({
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-5">
+        <form onSubmit={handleSubmit} className="min-w-0 space-y-5">
           <div className="space-y-2">
             <Label htmlFor="tipo">Tipo</Label>
             <Select value={tipo} onValueChange={(v) => form.setValue("tipo", v, { shouldValidate: true })}>
               <SelectTrigger id="tipo">
-                <SelectValue placeholder="Comentário ou Objetivo?" />
+                <SelectValue placeholder="Selecione o tipo de feedback" />
               </SelectTrigger>
               <SelectContent>
                 {OBJETIVO_TIPOS.map((t) => (
@@ -111,6 +114,8 @@ export function ObjetivoForm({
               <p className="text-sm text-destructive">{form.formState.errors.tipo.message}</p>
             )}
           </div>
+
+          <CultureFields form={form} open={open} initial={initial} prefix="editar" />
 
           <div className="space-y-2">
             <Label htmlFor="comentario">Comentário</Label>
