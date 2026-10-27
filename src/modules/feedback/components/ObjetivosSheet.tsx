@@ -74,6 +74,8 @@ export function ObjetivosSheet({ colaborador, guardiao, perms, onOpenChange }: P
         tipo: values.tipo,
         comentario: values.comentario,
         mostrarSuporte: values.mostrarSuporte,
+        campanhaId: values.campanhaId,
+        culturaId: values.culturaId,
       });
     } else {
       if (!guardiao) {
@@ -85,6 +87,8 @@ export function ObjetivosSheet({ colaborador, guardiao, perms, onOpenChange }: P
         tipo: values.tipo,
         comentario: values.comentario,
         mostrarSuporte: values.mostrarSuporte,
+        campanhaId: values.campanhaId,
+        culturaId: values.culturaId,
       });
     }
     setFormOpen(false);
@@ -188,6 +192,13 @@ export function ObjetivosSheet({ colaborador, guardiao, perms, onOpenChange }: P
                       )}
                     </div>
                   </div>
+                  {o.tipo === "Cultura" && (
+                    <div className="mt-2 text-xs text-muted-foreground space-y-1">
+                      {o.campanhaNome && <p>Campanha: {o.campanhaNome}</p>}
+                      {o.culturaNome && <p>Cultura: {o.culturaNome}</p>}
+                      {(!o.campanhaId || !o.culturaId) && <p className="text-warning">Campanha e cultura ainda não definidas.</p>}
+                    </div>
+                  )}
                   {o.comentario && (
                     <p className="text-sm text-foreground mt-2 whitespace-pre-wrap break-words">
                       {o.comentario}

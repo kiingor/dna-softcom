@@ -65,6 +65,8 @@ export function useObjetivoMutations(colaboradorId: number | null) {
       tipo: string;
       comentario?: string;
       mostrarSuporte: boolean;
+      campanhaId?: string;
+      culturaId?: string;
     }) => {
       const { companyId, colaboradorId } = ensureCtx();
       const hoje = todayISO();
@@ -75,12 +77,15 @@ export function useObjetivoMutations(colaboradorId: number | null) {
         lancamentoUsuarioId: input.lancamentoUsuarioId,
         datas: hoje,
         lancamentoDatas: hoje,
+        campanhaId: input.tipo === "Cultura" ? input.campanhaId : undefined,
+        culturaId: input.tipo === "Cultura" ? input.culturaId : undefined,
       };
       return feedbackService.createObjetivo(companyId, colaboradorId, data);
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       invalidate();
-      toast.success("Feedback registrado ✓");
+      if (result.warning) toast.warning(result.warning, { duration: 12000 });
+      else toast.success("Feedback registrado ✓");
     },
     onError: (e: Error) => toast.error("Não rolou. " + (e.message ?? "Tenta de novo?")),
   });
@@ -91,20 +96,25 @@ export function useObjetivoMutations(colaboradorId: number | null) {
       tipo: string;
       comentario?: string;
       mostrarSuporte: boolean;
+      campanhaId?: string;
+      culturaId?: string;
     }) => {
       const { companyId, colaboradorId } = ensureCtx();
-      // PATCH parcial: mexe só nos 3 campos do form. Quem lançou e as datas
+      // PATCH parcial: mexe nos campos do form. Quem lançou e as datas
       // originais ficam preservados.
       const data: ObjetivoPayload = {
         tipo: input.tipo,
         comentario: (input.comentario ?? "").trim(),
         mostrarSuporte: input.mostrarSuporte,
+        campanhaId: input.tipo === "Cultura" ? input.campanhaId : undefined,
+        culturaId: input.tipo === "Cultura" ? input.culturaId : undefined,
       };
       return feedbackService.updateObjetivo(companyId, colaboradorId, input.itemId, data);
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       invalidate();
-      toast.success("Feedback atualizado ✓");
+      if (result.warning) toast.warning(result.warning, { duration: 12000 });
+      else toast.success("Feedback atualizado ✓");
     },
     onError: (e: Error) => toast.error("Não rolou. " + (e.message ?? "Tenta de novo?")),
   });
@@ -114,9 +124,10 @@ export function useObjetivoMutations(colaboradorId: number | null) {
       const { companyId, colaboradorId } = ensureCtx();
       return feedbackService.deleteObjetivo(companyId, colaboradorId, itemId);
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       invalidate();
-      toast.success("Feedback removido.");
+      if (result.warning) toast.warning(result.warning, { duration: 12000 });
+      else toast.success("Feedback removido.");
     },
     onError: (e: Error) => toast.error("Não rolou. " + (e.message ?? "Tenta de novo?")),
   });

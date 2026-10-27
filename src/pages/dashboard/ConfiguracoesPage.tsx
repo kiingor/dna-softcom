@@ -18,6 +18,7 @@ import WhatsAppConfigTab from "@/components/whatsapp/WhatsAppConfigTab";
 import AuditoriaTab from "@/modules/audit/pages/AuditoriaTab";
 import { MfaLoginCard } from "@/components/security/MfaLoginCard";
 import { PixEnvironmentCard } from "@/modules/payroll/components/PixEnvironmentCard";
+import { FeedbackSettingsTab } from "@/modules/feedback/components/FeedbackSettingsTab";
 
 const ConfiguracoesPage = () => {
   const { currentCompany, hasAnyRole } = useDashboard();
@@ -41,7 +42,7 @@ const ConfiguracoesPage = () => {
   // Handle tab from URL params
   useEffect(() => {
     const tab = searchParams.get("tab");
-    if (tab && ["conta", "usuarios", "whatsapp", "auditoria"].includes(tab)) {
+    if (tab && ["conta", "usuarios", "whatsapp", "auditoria", "feedback"].includes(tab)) {
       setActiveTab(tab);
     }
     // 'seguranca' só entra se a pessoa puder ver: a permissão chega assíncrona,
@@ -252,6 +253,10 @@ const ConfiguracoesPage = () => {
               <MessageSquare className="w-4 h-4" />
               Notificações WhatsApp
             </TabsTrigger>
+            <TabsTrigger value="feedback" className="gap-2">
+              <MessageSquare className="w-4 h-4" />
+              Feedback
+            </TabsTrigger>
             {canAccessSecurityTab && (
               <TabsTrigger value="seguranca" className="gap-2">
                 <LockKey className="w-4 h-4" />
@@ -267,6 +272,7 @@ const ConfiguracoesPage = () => {
           </TabsList>
 
           {/* Tab: Dados da Conta */}
+          <TabsContent value="feedback"><FeedbackSettingsTab /></TabsContent>
           <TabsContent value="conta" className="space-y-6">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">

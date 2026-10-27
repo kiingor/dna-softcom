@@ -14,6 +14,155 @@ export type Database = {
   }
   public: {
     Tables: {
+      feedback_campaigns: {
+        Row: {
+          company_id: string
+          created_at: string
+          id: string
+          is_active: boolean
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "feedback_campaigns_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "agent_company_overview"
+            referencedColumns: ["company_id"]
+          },
+          {
+            foreignKeyName: "feedback_campaigns_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      feedback_classifications: {
+        Row: {
+          agenda_collaborator_id: number
+          agenda_objective_id: number
+          campaign_id: string
+          company_id: string
+          created_at: string
+          culture_id: string
+          id: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          agenda_collaborator_id: number
+          agenda_objective_id: number
+          campaign_id: string
+          company_id: string
+          created_at?: string
+          culture_id: string
+          id?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          agenda_collaborator_id?: number
+          agenda_objective_id?: number
+          campaign_id?: string
+          company_id?: string
+          created_at?: string
+          culture_id?: string
+          id?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "feedback_classifications_campaign_fk"
+            columns: ["company_id", "campaign_id"]
+            isOneToOne: false
+            referencedRelation: "feedback_campaigns"
+            referencedColumns: ["company_id", "id"]
+          },
+          {
+            foreignKeyName: "feedback_classifications_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "agent_company_overview"
+            referencedColumns: ["company_id"]
+          },
+          {
+            foreignKeyName: "feedback_classifications_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "feedback_classifications_culture_fk"
+            columns: ["company_id", "culture_id"]
+            isOneToOne: false
+            referencedRelation: "feedback_cultures"
+            referencedColumns: ["company_id", "id"]
+          },
+        ]
+      }
+      feedback_cultures: {
+        Row: {
+          company_id: string
+          created_at: string
+          id: string
+          is_active: boolean
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "feedback_cultures_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "agent_company_overview"
+            referencedColumns: ["company_id"]
+          },
+          {
+            foreignKeyName: "feedback_cultures_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       admission_documents: {
         Row: {
           ai_confidence: number | null

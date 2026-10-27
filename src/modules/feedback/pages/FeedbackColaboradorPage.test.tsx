@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { FeedbackColaborador } from "../types";
 import FeedbackColaboradorPage from "./FeedbackColaboradorPage";
+import { MemoryRouter } from "react-router-dom";
 
 const { useFeedbacks, usePermissions } = vi.hoisted(() => ({
   useFeedbacks: vi.fn(),
@@ -26,7 +27,7 @@ const colaboradores: FeedbackColaborador[] = [
 ];
 
 function renderPage() {
-  return render(<TooltipProvider><FeedbackColaboradorPage /></TooltipProvider>);
+  return render(<MemoryRouter><TooltipProvider><FeedbackColaboradorPage /></TooltipProvider></MemoryRouter>);
 }
 
 async function selectOption(label: string, option: string) {
