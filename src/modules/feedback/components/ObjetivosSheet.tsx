@@ -196,7 +196,17 @@ export function ObjetivosSheet({ colaborador, guardiao, perms, onOpenChange }: P
                     <div className="mt-2 text-xs text-muted-foreground space-y-1">
                       {o.campanhaNome && <p>Campanha: {o.campanhaNome}</p>}
                       {o.culturaNome && <p>Cultura: {o.culturaNome}</p>}
-                      {(!o.campanhaId || !o.culturaId) && <p className="text-warning">Campanha e cultura ainda não definidas.</p>}
+                      {!o.origemPainel && (!o.campanhaId || !o.culturaId) && <p className="text-warning">Campanha e cultura ainda não definidas.</p>}
+                    </div>
+                  )}
+                  {o.origemPainel && (
+                    <div className="mt-2 rounded-md bg-muted p-3 text-xs text-muted-foreground space-y-1 break-words">
+                      <p className="font-medium text-foreground">Enviado pelo painel do colaborador</p>
+                      {o.origemPainel.campanhaNome && <p>Campanha do envio: {o.origemPainel.campanhaNome}</p>}
+                      {o.origemPainel.culturaNome && <p>Cultura do envio: {o.origemPainel.culturaNome}</p>}
+                      {o.origemPainel.percentual != null && <p>Índice na ocasião: <span className="mono">{o.origemPainel.percentual}%</span></p>}
+                      {o.origemPainel.objetivo && <p className="whitespace-pre-wrap break-words">Objetivo: {o.origemPainel.objetivo}</p>}
+                      {o.origemPainel.prazo && <p>Data combinada: <span className="mono">{fmtDate(o.origemPainel.prazo)}</span></p>}
                     </div>
                   )}
                   {o.comentario && (

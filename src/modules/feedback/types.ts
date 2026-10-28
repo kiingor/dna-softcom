@@ -57,6 +57,14 @@ export interface Objetivo {
   campanhaNome?: string | null;
   culturaId?: string | null;
   culturaNome?: string | null;
+  /** Dados originais do painel; não são classificações do catálogo do DNA. */
+  origemPainel?: {
+    campanhaNome: string | null;
+    culturaNome: string | null;
+    percentual: number | null;
+    objetivo: string | null;
+    prazo: string | null;
+  };
 }
 
 export type FeedbackOptionKind = "campaign" | "culture";
