@@ -67,4 +67,14 @@ describe("classificação local e integração com a Agenda", () => {
     mock.in.mockResolvedValueOnce({ data: null, error: {} });
     await expect(enrichClassifications(db, "company", 7, [{ id: 42, tipo: "Cultura" }])).rejects.toThrow("Não foi possível carregar");
   });
+  it("preserva origem do painel ao enriquecer a classificação local sem misturar os catálogos", async () => {
+    const origemPainel = { campanhaNome: "Campanha do Hub", culturaNome: "Cultura do Hub", percentual: 0, objetivo: "Compartilhar conhecimento", prazo: "2026-11-30" };
+    mock.in.mockResolvedValueOnce({ data: [{ agenda_objective_id: 42, campaign_id: campaign, culture_id: culture, campaign: { name: "Campanha do DNA" }, culture: { name: "Cultura do DNA" } }] });
+    const result = await enrichClassifications(db, "company", 7, [{ id: 42, tipo: "Cultura", origemPainel }, { id: 43, tipo: "Objetivo", origemPainel }, { id: 44, tipo: "Comentário" }]);
+    expect(result[0]).toMatchObject({ campanhaNome: "Campanha do DNA", culturaNome: "Cultura do DNA", origemPainel });
+    expect(result[1]).toMatchObject({ campanhaNome: null, culturaNome: null, origemPainel });
+    expect(result[2]).not.toHaveProperty("origemPainel");
+    expect(origemPainel.percentual).toBe(0);
+  });
+
 });

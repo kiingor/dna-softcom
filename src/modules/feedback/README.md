@@ -5,6 +5,24 @@ O painel consulta feedbacks e objetivos na Agenda por meio da Edge Function
 associada por `external_id` e limitada à empresa autorizada. Essa consulta usa
 somente os IDs presentes no painel e não altera cadastros.
 
+## Feedbacks enviados pelo painel do colaborador
+
+A API Agenda integra os envios do Hub à mesma tabela de objetivos consumida aqui.
+Eles entram na lista, contagem e filtro por autor mantendo a data original.
+Os GETs acrescentam `origemPainel` com campanha, cultura, percentual, objetivo e
+prazo; o detalhe mostra esses dados em um bloco identificado pelo painel.
+Percentual zero é exibido, e ausência de percentual não é convertida em zero.
+
+Esses dados não são IDs das opções cadastradas no DNA. Classificações locais
+continuam independentes e são apresentadas separadamente, sem copiar catálogos
+ou codificar dados dentro do comentário. A função `feedbacks` já preserva os
+campos adicionais da Agenda; não precisa de nova publicação de Edge Function.
+
+A sincronização é de mão única. Alterar ou excluir a cópia pelo DNA não modifica
+o envio original do Hub, e a API não reenvia um item já integrado. As permissões
+existentes do DNA continuam valendo, inclusive para feedback oculto do destinatário.
+O complemento visual exige a nova API da Agenda antes da publicação deste frontend.
+
 ## Campanhas e culturas
 
 Em **Configurações → Feedback**, usuários com permissão de configuração podem
