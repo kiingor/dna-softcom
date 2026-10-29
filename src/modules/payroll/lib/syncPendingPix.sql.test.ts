@@ -6,6 +6,11 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 const readMigration = (name: string) => readFileSync(new URL(`../../../../supabase/migrations/${name}.sql`, import.meta.url), "utf8");
 const migration = readMigration("20260928180000_sync_pending_payroll_pix");
+const cpfMigration = readMigration("20261029213000_pix_explicit_cpf_key");
+// Fixtures artificiais: sequência numérica com dígitos verificadores calculados.
+const explicitCpf = '001.234.567-97';
+const explicitCpfDigits = '00123456797';
+const ambiguousPhone = '11900000083';
 const company = randomUUID(), collaborator = randomUUID(), period = randomUUID(), entry = randomUUID();
 let db: PGlite;
 
@@ -61,6 +66,7 @@ beforeAll(async () => {
       FOR EACH ROW EXECUTE FUNCTION audit_pix_change();
   `);
   await db.exec(migration);
+  await db.exec(cpfMigration);
 });
 afterAll(async () => { await db?.close(); });
 beforeEach(async () => {
@@ -85,7 +91,156 @@ async function openTransfer() {
   return (await db.query<Record<string, unknown>>("SELECT * FROM payroll_pix_open_transfer($1,$2,'sandbox')", [entry, randomUUID()])).rows[0];
 }
 
+describe("migration de chave CPF explícita", () => {
+  it.each([
+    [explicitCpf, '01234567890', 'cpf', explicitCpfDigits],
+    [explicitCpf, null, 'cpf', explicitCpfDigits],
+    [`  ${explicitCpf}  `, '01234567890', 'cpf', explicitCpfDigits],
+    ['123.456.789-09', '01234567890', 'cpf', '12345678909'],
+    // Erro no primeiro ou no segundo verificador não pode cair para telefone.
+    ['001.234.567-87', '01234567890', null, null],
+    ['001.234.567-98', '00123456798', null, null],
+    [ambiguousPhone, '01234567890', 'phone', `+55${ambiguousPhone}`],
+    [ambiguousPhone, null, 'phone', `+55${ambiguousPhone}`],
+    [ambiguousPhone, '119.000.000-83', 'cpf', ambiguousPhone],
+    ['119.000.000-83', '01234567890', 'cpf', ambiguousPhone],
+    // Pontuação diferente da máscara completa conserva a regra anterior.
+    ['001.234567-97', '01234567890', 'phone', `+55${explicitCpfDigits}`],
+    ['(11) 90000-0083', '01234567890', 'phone', `+55${ambiguousPhone}`],
+    ['+55 (11) 90000-0083', '01234567890', 'phone', `+55${ambiguousPhone}`],
+    ['(11) 3000-0000', '01234567890', 'phone', '+551130000000'],
+    ['+55 (11) 3000-0000', '01234567890', 'phone', '+551130000000'],
+    ['  Pessoa@Example.Invalid  ', '01234567890', 'email', 'pessoa@example.invalid'],
+    ['00000000-0000-4000-A000-000000000000', '01234567890', 'evp', '00000000-0000-4000-a000-000000000000'],
+    ['12.345.678/0001-00', '01234567890', 'cnpj', '12345678000100'],
+    [null, '01234567890', null, null],
+    ['', '01234567890', null, null],
+  ])("classifica e normaliza %s com CPF cadastral %s", async (key, document, type, normalized) => {
+    const { rows } = await db.query("SELECT public.pix_key_type($1,$2) AS type, public.pix_key_normalized($1,$2) AS normalized", [key, document]);
+    expect(rows).toEqual([{type, normalized}]);
+  });
+
+  it.each(Array.from({ length: 10 }, (_, digit) => `${digit}`))("rejeita CPF mascarado com dígito %s repetido", async (digit) => {
+    const digits = digit.repeat(11);
+    const key = `${digit.repeat(3)}.${digit.repeat(3)}.${digit.repeat(3)}-${digit.repeat(2)}`;
+    const { rows } = await db.query("SELECT public.pix_key_type($1,$2) AS type, public.pix_key_normalized($1,$2) AS normalized", [key, digits]);
+    expect(rows).toEqual([{type:null, normalized:null}]);
+  });
+
+  it("não reescreve colunas geradas, linhas aprovadas, histórico ou auditoria ao instalar", async () => {
+    await db.exec(readMigration("20260818120000_pix_key_type_and_normalizer"));
+    try {
+      await changeKey(explicitCpf);
+      const transfer = await openTransfer();
+      await db.query("UPDATE payroll_pix_transfers SET status='failed' WHERE id=$1", [transfer.id]);
+      const before = {
+        collaborator: (await db.query("SELECT * FROM collaborators")).rows,
+        line: await line(),
+        transfers: (await db.query("SELECT * FROM payroll_pix_transfers")).rows,
+        audit: (await db.query("SELECT * FROM audit_log")).rows,
+      };
+      expect(before.line.payee_pix_key_type).toBe('phone');
+      expect(before.line.payee_pix_key_norm).toBe(`+55${explicitCpfDigits}`);
+
+      await db.exec(cpfMigration);
+      await db.exec(cpfMigration);
+
+      expect((await db.query("SELECT public.pix_key_type($1,$2) AS type", [explicitCpf, '01234567890'])).rows).toEqual([{type:'cpf'}]);
+      expect((await db.query("SELECT * FROM collaborators")).rows).toEqual(before.collaborator);
+      expect(await line()).toEqual(before.line);
+      expect((await db.query("SELECT * FROM payroll_pix_transfers")).rows).toEqual(before.transfers);
+      expect((await db.query("SELECT * FROM audit_log")).rows).toEqual(before.audit);
+    } finally {
+      await db.exec(cpfMigration);
+    }
+  });
+});
+
 describe("PIX pendente acompanha cadastro sem mudar pagamentos iniciados", () => {
+  it.each(['update', 'upsert'])("preserva CPF explícito e snapshot quando a sincronização faz %s dos mesmos dígitos", async (operation) => {
+    await changeKey(explicitCpf);
+    const before = await line();
+    const beforeCollaborator = (await db.query("SELECT * FROM collaborators WHERE id=$1", [collaborator])).rows;
+    const beforeAudit = (await db.query("SELECT * FROM audit_log")).rows;
+
+    if (operation === 'upsert') {
+      await db.query(`INSERT INTO collaborators(id,company_id,name,cpf,pix_key)
+        VALUES($1,$2,'Pessoa fictícia','01234567890',$3)
+        ON CONFLICT(id) DO UPDATE SET pix_key=EXCLUDED.pix_key, cpf=EXCLUDED.cpf`, [collaborator, company, explicitCpfDigits]);
+    } else {
+      await changeKey(explicitCpfDigits);
+    }
+
+    expect((await db.query("SELECT * FROM collaborators WHERE id=$1", [collaborator])).rows).toEqual(beforeCollaborator);
+    expect(await line()).toEqual(before);
+    expect((await db.query("SELECT * FROM audit_log")).rows).toEqual(beforeAudit);
+    expect(await openTransfer()).toMatchObject({ payee_pix_key:explicitCpf, payee_pix_key_norm:explicitCpfDigits, payee_pix_key_type:'cpf', payee_document:'01234567890', amount:'850' });
+  });
+
+  it("mantém o CPF já classificado mesmo com espaços ao redor da máscara", async () => {
+    const keyWithSpaces = ` ${explicitCpf} `;
+    await changeKey(keyWithSpaces);
+    const before = await line();
+    await changeKey(explicitCpfDigits);
+    expect(await line()).toEqual(before);
+    expect((await db.query("SELECT pix_key,pix_key_type,pix_key_normalized FROM collaborators WHERE id=$1", [collaborator])).rows)
+      .toEqual([{pix_key:keyWithSpaces, pix_key_type:'cpf', pix_key_normalized:explicitCpfDigits}]);
+  });
+
+  it.each([
+    ['123.456.789-09', 'cpf', '12345678909'],
+    ['new@example.invalid', 'email', 'new@example.invalid'],
+    [null, null, null],
+    ['', null, null],
+  ])("permite trocar o CPF explícito pela chave %s", async (key, type, normalized) => {
+    await changeKey(explicitCpf);
+    const before = await line();
+    await changeKey(key);
+    expect(await line()).toEqual({ ...before, payee_pix_key:key, payee_pix_key_type:type, payee_pix_key_norm:normalized });
+  });
+
+  it("permite declarar telefone com +55 para os mesmos dígitos do CPF explícito", async () => {
+    await changeKey('119.000.000-83');
+    const before = await line();
+    await changeKey(`+55${ambiguousPhone}`);
+    expect(await line()).toEqual({ ...before, payee_pix_key:`+55${ambiguousPhone}`, payee_pix_key_type:'phone', payee_pix_key_norm:`+55${ambiguousPhone}` });
+    expect((await db.query("SELECT pix_key_type FROM collaborators WHERE id=$1", [collaborator])).rows).toEqual([{pix_key_type:'phone'}]);
+  });
+
+  it("não preserva uma máscara com checksum inválido ao receber dígitos sem máscara", async () => {
+    await changeKey('001.234.567-98');
+    await changeKey('00123456798');
+    expect((await db.query("SELECT pix_key,pix_key_type,pix_key_normalized FROM collaborators WHERE id=$1", [collaborator])).rows)
+      .toEqual([{pix_key:'00123456798', pix_key_type:'phone', pix_key_normalized:'+5500123456798'}]);
+  });
+
+  it("sincroniza CPF explícito diferente do cadastro sem mudar documento, valores ou histórico", async () => {
+    const oldTransfer = await openTransfer();
+    await db.query("UPDATE payroll_pix_transfers SET status='failed' WHERE id=$1", [oldTransfer.id]);
+    const historicalTransfer = (await db.query("SELECT * FROM payroll_pix_transfers WHERE id=$1", [oldTransfer.id])).rows[0];
+    const before = await line();
+    const approvedSnapshot = (await db.query<{snapshot: Record<string, unknown>}>("SELECT to_jsonb(l) AS snapshot FROM payroll_payable_lines l WHERE entry_id=$1", [entry])).rows[0].snapshot;
+
+    await changeKey(explicitCpf);
+
+    expect(await line()).toEqual({ ...before, payee_pix_key:explicitCpf, payee_pix_key_norm:explicitCpfDigits, payee_pix_key_type:'cpf' });
+    expect((await db.query("SELECT cpf,pix_key,pix_key_type,pix_key_normalized FROM collaborators WHERE id=$1", [collaborator])).rows)
+      .toEqual([{cpf:'01234567890', pix_key:explicitCpf, pix_key_type:'cpf', pix_key_normalized:explicitCpfDigits}]);
+    expect((await db.query("SELECT * FROM payroll_pix_transfers WHERE id=$1", [oldTransfer.id])).rows[0]).toEqual(historicalTransfer);
+    const audit = (await db.query<{before: Record<string, unknown>; after: Record<string, unknown>}>("SELECT before,after FROM audit_log")).rows;
+    expect(audit).toEqual([{ before:approvedSnapshot, after:{ ...approvedSnapshot, payee_pix_key:explicitCpf, payee_pix_key_norm:explicitCpfDigits, payee_pix_key_type:'cpf' } }]);
+    const next = await openTransfer();
+    expect(next).toMatchObject({ attempt:2, payee_pix_key:explicitCpf, payee_pix_key_norm:explicitCpfDigits, payee_pix_key_type:'cpf', payee_document:'01234567890', amount:'850' });
+  });
+
+  it.each(['001.234.567-87', '001.234.567-98', '111.111.111-11'])("bloqueia nova tentativa com CPF explícito inválido %s", async (key) => {
+    const before = await line();
+    await changeKey(key);
+    expect(await line()).toEqual({ ...before, payee_pix_key:key, payee_pix_key_norm:null, payee_pix_key_type:null });
+    await expect(openTransfer()).rejects.toThrow('Chave PIX');
+    expect((await db.query("SELECT * FROM payroll_pix_transfers")).rows).toEqual([]);
+  });
+
   it("atualiza chave/tipo/normalização, mantém zero inicial e audita sem recalcular valores", async () => {
     const before = await line();
     await changeKey();
@@ -109,9 +264,11 @@ describe("PIX pendente acompanha cadastro sem mudar pagamentos iniciados", () =>
     const transfer = await openTransfer();
     await db.query("UPDATE payroll_pix_transfers SET status=$1", [status]);
     const before = await line();
-    await changeKey();
+    const beforeTransfer = (await db.query("SELECT * FROM payroll_pix_transfers WHERE id=$1", [transfer.id])).rows[0];
+    await changeKey(explicitCpf);
     expect(await line()).toEqual(before);
-    expect((await db.query("SELECT payee_pix_key FROM payroll_pix_transfers WHERE id=$1", [transfer.id])).rows).toEqual([{payee_pix_key:'old@example.invalid'}]);
+    expect((await db.query("SELECT * FROM payroll_pix_transfers WHERE id=$1", [transfer.id])).rows[0]).toEqual(beforeTransfer);
+    expect((await db.query("SELECT * FROM audit_log")).rows).toEqual([]);
   });
 
   it("usa a chave nova ao tentar novamente após falha, preservando a tentativa antiga", async () => {
@@ -129,10 +286,13 @@ describe("PIX pendente acompanha cadastro sem mudar pagamentos iniciados", () =>
   it("preserva pagamento manual e só sincroniza quando ele é desmarcado", async () => {
     await db.query("INSERT INTO payroll_payments(period_id,entry_id,paid_at,method) VALUES($1,$2,now(),'manual')", [period, entry]);
     const before = await line();
-    await changeKey();
+    const beforePayment = (await db.query("SELECT * FROM payroll_payments")).rows;
+    await changeKey(explicitCpf);
     expect(await line()).toEqual(before);
+    expect((await db.query("SELECT * FROM payroll_payments")).rows).toEqual(beforePayment);
     await db.query("UPDATE payroll_payments SET paid_at=NULL WHERE entry_id=$1", [entry]);
-    expect((await line()).payee_pix_key).toBe('01234567890');
+    expect((await line()).payee_pix_key).toBe(explicitCpf);
+    expect((await line()).payee_pix_key_norm).toBe(explicitCpfDigits);
   });
 
   it("preserva folha arquivada e permite salvar o cadastro", async () => {
