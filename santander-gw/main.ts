@@ -555,17 +555,22 @@ async function handleSearch(url: URL, cfg: GwConfig, requestId: string): Promise
 // redeploy.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const BRANCH_PATTERN = /^\d{1,6}$/;
-const ACCOUNT_PATTERN = /^\d{1,20}$/;
+const BRANCH_PATTERN = /^\d{1,4}$/;
+const ACCOUNT_PATTERN = /^\d{1,12}$/;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 function resolveBranchAccount(url: URL, cfg: GwConfig): { branch: string; account: string } {
+  // Consulta diretamente a conta pagadora configurada. GET /accounts é uma
+  // operação independente: pode falhar mesmo quando GET /balances funciona.
+  // Nunca escolher accounts[0], que pode ser outra conta do mesmo titular.
   const branch = (url.searchParams.get("branch") ?? cfg.debitBranch).trim();
   const account = (url.searchParams.get("account") ?? cfg.debitAccount).trim();
   if (!BRANCH_PATTERN.test(branch) || !ACCOUNT_PATTERN.test(account)) {
-    throw new BadRequest("branch/account precisam ser numéricos (agência até 6, conta até 20 dígitos)");
+    throw new BadRequest("branch/account precisam ser numéricos (agência até 4, conta com dígito até 12 dígitos)");
   }
-  return { branch, account };
+  // O contrato bank_account_information usa agência4.conta12. O dígito já
+  // integra a conta configurada; completar zeros, sem acrescentar outro dígito.
+  return { branch: branch.padStart(4, "0"), account: account.padStart(12, "0") };
 }
 
 async function handleAccounts(cfg: GwConfig, requestId: string): Promise<Response> {
