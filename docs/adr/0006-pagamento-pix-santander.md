@@ -243,3 +243,28 @@ nova autorização normal do operador no sistema.
 - Descobrir o verbo exato de confirmação (`READY_TO_PAY` → `PAYED`): a
   documentação indica `PATCH` no recurso do pagamento.
 - Definir o workspace de produção e a conta pagadora por empresa.
+
+## Chave CPF declarada com máscara (29/10/2026)
+
+Uma chave numérica de onze dígitos diferente do CPF cadastral era classificada
+como telefone, normalizada com `+55` e recusada pelo Santander com `40060`
+(`dictCode`, chave inexistente). A confirmação do tipo pelo operador precisa
+ser preservada sem alterar o documento de identidade da colaboradora.
+
+A máscara completa `###.###.###-##` declara uma chave CPF, desde que seus dígitos
+verificadores sejam válidos e não sejam todos iguais. Máscara CPF inválida
+retorna tipo/normalização nulos. Números sem máscara mantêm a regra anterior;
+um telefone não vira CPF apenas porque seus dígitos passam no checksum.
+
+A migration `20261029213000` não reescreve dados existentes. A correção pontual
+autorizada formata a chave confirmada no cadastro; as colunas geradas derivam
+`cpf` e os dígitos sem máscara, e o trigger existente atualiza somente snapshots
+pendentes sem tentativa ativa. Documento cadastral, montantes, aprovações e
+tentativas anteriores permanecem intactos. Os formulários preservam a máscara
+ao salvar. Um trigger anterior à atualização também preserva essa declaração
+quando uma importação reenvia exatamente os mesmos onze dígitos sem máscara.
+Outra chave, remoção da chave ou telefone com formato explícito continuam
+editáveis normalmente.
+
+Essa validação local não comprova titularidade nem registro ativo no DICT. A
+correção não executa pagamento; a consulta ao banco ocorre no fluxo normal.
