@@ -48,9 +48,8 @@ const RETRY_AFTER_CAP_MS = 8_000;
  *  Santander e cortam a página HTML do Akamai antes de ela poluir o log. */
 const PROVIDER_BODY_MAX = 300;
 
-/** PIX carrega até 140 chars de remittance. Se o provedor reclamar de tamanho,
- *  é esta constante que desce — e nada mais. */
-const REMITTANCE_MAX = 140;
+/** Limite do POST por chave DICT no contrato do Santander. */
+const REMITTANCE_MAX = 138;
 
 const DEFAULT_BASE_URL = "https://trust-sandbox.api.santander.com.br";
 // O comprovante NÃO tem sandbox: a doc só publica trust-open (produção) e
@@ -681,7 +680,7 @@ export function buildPaymentPayload(
     // "Tag deve receber no máximo 20 caracteres"), e a nossa idempotency_key
     // (sh-<32hex>-<attempt>) tem 37. Então a tag leva só um prefixo — o canal de
     // recuperação de verdade, quando o provider_payment_id se perde num timeout,
-    // é o remittanceInformation abaixo, que cabe a chave INTEIRA (140 chars) e é
+    // é o remittanceInformation abaixo, que cabe a chave INTEIRA (138 chars) e é
     // onde matchesKey/searchByIdempotencyKey procuram primeiro.
     tags: [input.idempotencyKey.slice(0, 20)],
     // O Santander chama a chave de telefone de CELULAR, não PHONE (provado
@@ -694,18 +693,15 @@ export function buildPaymentPayload(
     // Strings, não números: o contrato do Santander é string e o valor vem de
     // numeric(12,2) do Postgres. Passar por float no caminho é onde centavo some.
     //
-    // Os CINCO campos de valor espelham um pagamento real lido do sandbox
-    // (ADR 0006): sem desconto nem acréscimo, os quatro derivados são o próprio
-    // valor. `paymentValue` é OBRIGATÓRIO — sua ausência foi o primeiro 400 que
-    // o sandbox devolveu (_field: paymentValue, "Valor do pagamento é obrigatório").
-    nominalValue: input.amount,
-    deductedValue: "0.00",
-    addedValue: "0.00",
-    totalValue: input.amount,
+    // O POST aceita paymentValue. nominalValue, deductedValue, addedValue,
+    // totalValue e payer são campos da RESPOSTA, não da criação por chave.
+    // Em produção, cada um desses campos causa HTTP 400 / 10302 antes da
+    // validação da chave (diagnóstico de 29/10/2026; ver ADR 0006).
     paymentValue: input.amount,
   };
 
-  if (input.payer) payload.payer = input.payer;
+  // O banco resolve o pagador pelo workspace/conta. O snapshot recebido em
+  // input.payer continua no registro interno da transferência para auditoria.
 
   // O `beneficiary` NÃO é enviado, de propósito. Este endpoint paga PELA CHAVE:
   // o DICT resolve o favorecido (banco, agência, conta, documento) a partir do
