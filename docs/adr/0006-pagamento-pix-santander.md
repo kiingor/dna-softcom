@@ -171,6 +171,27 @@ segurança.
 
 ## Pendências
 
+### Incidente de extrato em 29/10/2026: recurso e página inicial
+
+A chamada antiga usava `/banks/{bank_id}/statements` com agência/conta na
+query. O Santander respondia HTTP 404, convertido pelo gateway em 422, e a
+interface apresentava a hipótese genérica de falta de habilitação.
+
+O endpoint exige `/banks/{bank_id}/statements/{statement_id}`, sendo
+`statement_id` a agência de 4 dígitos e conta de 12 dígitos separadas por ponto,
+mais `initialDate`, `finalDate`, `_limit` e `_offset` na query. O diagnóstico
+somente de leitura confirmou que `_offset=0` também recebe 422; a primeira
+página é `_offset=1`. Com `_limit=50`, a consulta do mês e a consulta do dia
+retornaram HTTP 200 com movimentações. Não houve alteração de credenciais.
+
+Produção retorna `_content` e `_pageable.totalPages`/`totalRecords` como strings.
+O gateway passa a interpretar esses totais, mantendo compatibilidade com
+`_moreElements`, para preservar o aviso já existente na UI quando somente os
+primeiros 50 lançamentos são exibidos. Paginação interativa não foi adicionada.
+Nenhuma rota de pagamento, autorização financeira ou consulta de saldo mudou.
+
+Referência: [guia Santander de contas, saldo e movimentos, páginas 32–33](https://developer.santander.com.br/sites/default/files/2024-02/user_guide_contas_saldo_extrato_api_v6.pdf).
+
 ### Incidente de saldo em 29/10/2026: listagem não é pré-requisito
 
 O gateway em produção consultava `GET /accounts` antes de ler o saldo e
@@ -190,9 +211,8 @@ conforme o [guia oficial de contas, saldo e extrato, página 31](https://develop
 Esse CNPJ já estava aplicado na produção e agora fica também versionado.
 Nenhuma configuração bancária, permissão ou rota de pagamento foi alterada.
 
-A rota de listagem continua independente. A investigação também identificou
-divergências do endpoint/paginação de extrato com o guia; não fazem parte desta
-correção de saldo e precisam de validação própria antes de mudar o contrato.
+A rota de listagem continua independente. A divergência de endpoint/paginação
+do extrato foi tratada na correção específica documentada acima.
 
 ### Incidente de 29/10/2026: contrato do POST por chave DICT
 

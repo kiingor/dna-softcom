@@ -1223,16 +1223,21 @@ export async function getStatement(
   },
 ): Promise<{ entries: StatementEntry[]; hasMore: boolean }> {
   const bankId = params.bankId ?? SANTANDER_BANK_ID;
+  const statementId = `${params.branchCode}.${params.accountNumber}`;
   const q = new URLSearchParams({
-    branchCode: params.branchCode,
-    accountNumber: params.accountNumber,
     initialDate: params.initialDate,
     finalDate: params.finalDate,
+    _limit: "50",
+    // O Santander numera páginas a partir de 1; offset 0 retorna HTTP 422.
+    _offset: "1",
   });
 
   const { json } = await call({
     method: "GET",
-    url: accountInfoUrl(cfg, `/banks/${encodeURIComponent(bankId)}/statements?${q.toString()}`),
+    url: accountInfoUrl(
+      cfg,
+      `/banks/${encodeURIComponent(bankId)}/statements/${encodeURIComponent(statementId)}?${q.toString()}`,
+    ),
     headers: await authHeaders(cfg),
     timeoutMs: TIMEOUT_GET_MS,
     retry: true,
@@ -1260,7 +1265,10 @@ export async function getStatement(
         partyDocument: str(tx.partieCnpjCpf),
       };
     }),
-    hasMore: pageable._moreElements === true,
+    // Produção informa totalPages/totalRecords como strings. A UI já avisa
+    // quando exibe somente os primeiros lançamentos; não esconder esse limite.
+    hasMore: pageable._moreElements === true ||
+      Number(pageable.totalPages) > 1 || Number(pageable.totalRecords) > content.length,
   };
 }
 
