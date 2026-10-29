@@ -171,6 +171,29 @@ segurança.
 
 ## Pendências
 
+### Incidente de saldo em 29/10/2026: listagem não é pré-requisito
+
+O gateway em produção consultava `GET /accounts` antes de ler o saldo e
+escolhia a primeira conta retornada. Essa listagem passou a devolver HTTP 422
+(`Erro na Consulta`), interrompendo o fluxo antes de `GET /balances`.
+
+O diagnóstico somente de leitura confirmou que consultar diretamente o saldo
+da conta pagadora configurada devolve HTTP 200, valor disponível e moeda BRL
+com as mesmas credenciais. Portanto, o erro da listagem não comprova falta de
+habilitação da consulta de saldo. Saldo/extrato passam a resolver a conta
+configurada, sem depender da listagem nem selecionar `accounts[0]`.
+
+O identificador usa agência de 4 dígitos, ponto e conta com dígito de 12
+dígitos; entradas menores são completadas com zeros, sem truncar ou acrescentar
+outro dígito. O identificador do banco é o CNPJ Santander de 14 dígitos,
+conforme o [guia oficial de contas, saldo e extrato, página 31](https://developer.santander.com.br/sites/default/files/2024-02/user_guide_contas_saldo_extrato_api_v6.pdf).
+Esse CNPJ já estava aplicado na produção e agora fica também versionado.
+Nenhuma configuração bancária, permissão ou rota de pagamento foi alterada.
+
+A rota de listagem continua independente. A investigação também identificou
+divergências do endpoint/paginação de extrato com o guia; não fazem parte desta
+correção de saldo e precisam de validação própria antes de mudar o contrato.
+
 ### Incidente de 29/10/2026: contrato do POST por chave DICT
 
 O Santander recusou todas as 44 tentativas do dia com HTTP 400, código `10302`

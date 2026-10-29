@@ -1085,13 +1085,12 @@ export async function deleteWorkspace(
 // (Bearer + X-Application-Key). São todas GET: retry é seguro (consultar não move
 // dinheiro), não há kill-switch e nenhum estado 'unknown' nasce daqui.
 //
-// bank_id 33 = Santander (a doc aceita 0033 ou o CNPJ do banco). É constante
-// porque a conta pagadora da folha é sempre Santander; deixo sobrescrever por
-// parâmetro pra não travar um teste futuro contra outra instituição.
+// bank_id é o CNPJ de 14 dígitos do Santander, conforme o contrato desta API.
+// O código de compensação 33 não é o identificador usado neste endpoint.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const ACCOUNT_INFO_PATH = "/bank_account_information/v1";
-export const SANTANDER_BANK_ID = "33";
+export const SANTANDER_BANK_ID = "90400888000142";
 
 function accountInfoUrl(cfg: GwConfig, suffix: string): string {
   return `${cfg.baseUrl}${ACCOUNT_INFO_PATH}${suffix}`;
