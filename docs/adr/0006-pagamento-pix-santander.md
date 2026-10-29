@@ -171,6 +171,30 @@ segurança.
 
 ## Pendências
 
+### Incidente de 29/10/2026: contrato do POST por chave DICT
+
+O Santander recusou todas as 44 tentativas do dia com HTTP 400, código `10302`
+(conteúdo inválido), antes de criar o pagamento. Nenhuma tinha identificador do
+provedor, envio ou confirmação registrados. O gateway e o certificado estavam
+saudáveis; os pagamentos anteriores haviam sido liquidados em 01/10.
+
+Um diagnóstico sem pagamento (CPF deliberadamente inválido e valor zero,
+sem PATCH de autorização) isolou a diferença: o corpo antigo recebia `10302`;
+o corpo com `tags`, `dictCodeType`, `dictCode`, `remittanceInformation` e
+`paymentValue` chegava à validação de chave (`40002`, campo `dictCode`).
+Adicionar `debitAccount` preservava esse resultado; adicionar individualmente
+`nominalValue`, `deductedValue`, `addedValue`, `totalValue` ou `payer` reproduzia
+`10302`. Esses cinco campos pertencem à resposta e foram removidos do POST.
+
+A conta de débito explícita, o valor em string, a chave de reconciliação e o
+fluxo de confirmação permanecem preservados. O snapshot do pagador continua
+no banco interno. A informação adicional respeita o limite de 138 caracteres
+do [guia oficial, seção 4.2.3.1.1](https://developer.santander.com.br/sites/default/files/2023-10/user_guide_hub_de_pagamentos_api_v1_1_pt_10_10_23.pdf).
+O diagnóstico comprova a correção da estrutura; a liquidação depende de uma
+nova autorização normal do operador no sistema.
+
+### Histórico de pendências da implantação inicial
+
 - Vincular o certificado ao ClientId **de produção** quando for a hora (o de
   sandbox já está vinculado — foi o que destravou a Fase 0).
 - Descobrir o verbo exato de confirmação (`READY_TO_PAY` → `PAYED`): a
