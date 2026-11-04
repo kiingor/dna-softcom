@@ -297,7 +297,16 @@ Deno.serve(async (req) => {
 
         // Replace template variables
         let message = template.message_template;
-        const publishedUrl = "https://meurh.lovable.app";
+        // URL pública do app (ex.: https://dna.softcom.com.br). Configurada via
+        // `supabase secrets set APP_URL=...` — sem ela os links das mensagens
+        // sairiam quebrados, então falha cedo.
+        const publishedUrl = (Deno.env.get("APP_URL") ?? "").replace(/\/$/, "");
+        if (!publishedUrl) {
+          return new Response(
+            JSON.stringify({ success: false, reason: "app_url_not_configured" }),
+            { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
         message = message.replace(/{nome}/g, collaborator.name || "");
         message = message.replace(/{empresa}/g, company?.company_name || "");
         message = message.replace(/{link_primeiro_acesso}/g, `${publishedUrl}/primeiro-acesso`);
