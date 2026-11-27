@@ -7,6 +7,11 @@ import PermissionGuard from '@/components/dashboard/PermissionGuard';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useCoreResourceMutation } from '@/hooks/useCoreResourceMutation';
 import { AGENDA_SYNC_DISABLED } from '@/lib/agenda-sync';
+import { useTeamDeleteImpact } from '../hooks/use-team-delete-impact';
+import {
+  describeBlockingCollaborators,
+  describeDetached,
+} from '../utils/team-delete-impact';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -75,7 +80,13 @@ export default function SetoresPage() {
   const { currentCompany, stores } = useDashboard();
   const selectedCompanyId = currentCompany?.id;
   const queryClient = useQueryClient();
-  const { canCreate, isAdmin } = usePermissions('setores');
+  const { canCreate, canDelete, isAdmin } = usePermissions('setores');
+  // A conferência de vínculos lê collaborators, cuja RLS exige acesso ao módulo
+  // Colaboradores. Sem ele a contagem viria zerada e liberaria a exclusão.
+  const {
+    canView: canViewCollaborators,
+    isLoading: isCollaboratorPermissionLoading,
+  } = usePermissions('colaboradores');
   const canSync = (canCreate || isAdmin) && !AGENDA_SYNC_DISABLED;
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingTeam, setEditingTeam] = useState<Team | null>(null);
@@ -146,8 +157,51 @@ export default function SetoresPage() {
     );
   };
 
+  // Com a agenda desligada, a exclusão pede syncToRemote:false e fica só no DNA,
+  // mesmo que o secret AGENDA_SYNC_DISABLED falte no servidor. Sem isso, um
+  // setor com external_id seria apagado também em api.softcom.cloud.
   const handleTeamDelete = (id: string) => {
-    teamMutation.mutate({ action: 'delete', id });
+    teamMutation.mutate({ action: 'delete', id, syncToRemote: !AGENDA_SYNC_DISABLED });
+  };
+
+  // collaborators/positions/job_openings.team_id são ON DELETE SET NULL: o
+  // banco não barra, então o diálogo confere os vínculos antes de liberar.
+  const deleteImpact = useTeamDeleteImpact(
+    deletingTeam?.id ?? null,
+    canViewCollaborators,
+  );
+  const isCheckingDeleteImpact =
+    isCollaboratorPermissionLoading ||
+    (canViewCollaborators && deleteImpact.isPending);
+  const deleteBlockedReason = (() => {
+    if (!deletingTeam || isCheckingDeleteImpact) return null;
+    if (!canViewCollaborators) {
+      return 'Pra excluir, você precisa de acesso a Colaboradores. É assim que a gente confere quem está no setor.';
+    }
+    if (deleteImpact.isError) {
+      return 'Não deu pra conferir quem está neste setor. Fecha e tenta de novo?';
+    }
+    const blocking = deleteImpact.data?.blockingCollaborators ?? 0;
+    if (blocking > 0) {
+      return `Ainda tem ${describeBlockingCollaborators(blocking)} em "${deletingTeam.name}". Troca o setor deles e tenta de novo.`;
+    }
+    return null;
+  })();
+  const deleteDetachedText =
+    deleteImpact.data && !deleteBlockedReason
+      ? describeDetached(deleteImpact.data)
+      : null;
+  const canConfirmDelete =
+    !!deletingTeam &&
+    !isCheckingDeleteImpact &&
+    !deleteBlockedReason &&
+    !!deleteImpact.data &&
+    !teamMutation.isPending;
+
+  const confirmTeamDelete = () => {
+    if (!deletingTeam || !canConfirmDelete) return;
+    handleTeamDelete(deletingTeam.id);
+    setDeletingTeam(null);
   };
 
   const handleOpenDialog = (team?: Team) => {
@@ -410,7 +464,12 @@ export default function SetoresPage() {
                       <TableCell>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-8 w-8">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8"
+                              aria-label={`Ações do setor ${team.name}`}
+                            >
                               <DotsThreeVertical className="h-4 w-4" />
                             </Button>
                           </DropdownMenuTrigger>
@@ -423,18 +482,21 @@ export default function SetoresPage() {
                               <Copy className="w-4 h-4 mr-2" />
                               Copiar ID
                             </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            {/* Excluir setor DESATIVADO — cadastros corporativos sensíveis.
-                                Colaboradores apontam pra teams via FK. Pra "remover" desative
-                                no sistema da agenda; sync replica como inativo aqui. */}
-                            <DropdownMenuItem
-                              disabled
-                              className="text-muted-foreground"
-                              title="Não é possível excluir setor. Desative na agenda — sync replica aqui."
-                            >
-                              <Trash2 className="w-4 h-4 mr-2" />
-                              Excluir (indisponível)
-                            </DropdownMenuItem>
+                            {canDelete && (
+                              <>
+                                <DropdownMenuSeparator />
+                                {/* Com a agenda desligada, o DNA é a fonte dos setores e a
+                                    exclusão é local. O diálogo confere os vínculos antes:
+                                    colaborador ativo ou em admissão bloqueia. */}
+                                <DropdownMenuItem
+                                  className="text-destructive focus:text-destructive"
+                                  onClick={() => setDeletingTeam(team)}
+                                >
+                                  <Trash2 className="w-4 h-4 mr-2" />
+                                  Excluir
+                                </DropdownMenuItem>
+                              </>
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>
@@ -450,19 +512,40 @@ export default function SetoresPage() {
       <AlertDialog open={!!deletingTeam} onOpenChange={(open) => !open && setDeletingTeam(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Excluir Setor</AlertDialogTitle>
-            <AlertDialogDescription>
-              Tem certeza que deseja excluir o setor "{deletingTeam?.name}"? Esta ação não pode ser desfeita.
+            <AlertDialogTitle>
+              {deleteBlockedReason ? 'Ainda não dá pra excluir' : 'Excluir setor?'}
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                {isCheckingDeleteImpact ? (
+                  <p>Conferindo quem está neste setor...</p>
+                ) : deleteBlockedReason ? (
+                  <p>{deleteBlockedReason}</p>
+                ) : (
+                  <p>
+                    "{deletingTeam?.name}" vai sair da lista de setores. Essa ação não tem volta.
+                    {AGENDA_SYNC_DISABLED && ' Não afeta a agenda.'}
+                  </p>
+                )}
+                {deleteDetachedText && (
+                  <p className="rounded-md bg-warning/10 px-3 py-2 text-warning">
+                    Vão ficar sem setor: {deleteDetachedText}.
+                  </p>
+                )}
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => { if (deletingTeam) { handleTeamDelete(deletingTeam.id); setDeletingTeam(null); } }}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Excluir
-            </AlertDialogAction>
+            <AlertDialogCancel>{deleteBlockedReason ? 'Voltar' : 'Cancelar'}</AlertDialogCancel>
+            {!deleteBlockedReason && (
+              <AlertDialogAction
+                onClick={confirmTeamDelete}
+                disabled={!canConfirmDelete}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                Excluir
+              </AlertDialogAction>
+            )}
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
