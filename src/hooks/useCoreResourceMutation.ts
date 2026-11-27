@@ -15,10 +15,13 @@ import { toast } from "sonner";
 type Resource = "stores" | "teams" | "positions";
 type Action = "create" | "update" | "delete";
 
-const RESOURCE_LABEL: Record<Resource, { singular: string; queryKey: string }> = {
-  stores: { singular: "Empresa", queryKey: "stores" },
-  teams: { singular: "Setor", queryKey: "teams" },
-  positions: { singular: "Cargo", queryKey: "positions" },
+const RESOURCE_LABEL: Record<
+  Resource,
+  { singular: string; queryKey: string; feminine: boolean }
+> = {
+  stores: { singular: "Empresa", queryKey: "stores", feminine: true },
+  teams: { singular: "Setor", queryKey: "teams", feminine: false },
+  positions: { singular: "Cargo", queryKey: "positions", feminine: false },
 };
 
 interface MutateArgs {
@@ -27,6 +30,12 @@ interface MutateArgs {
   id?: string;
   /** Campos da row em create/update */
   data?: Record<string, unknown>;
+  /**
+   * Sobrescreve `ResourceOptions.syncToRemote` só nesta chamada. A exclusão de
+   * setor usa `false` com a agenda desligada, para não depender de o secret
+   * AGENDA_SYNC_DISABLED estar configurado no servidor.
+   */
+  syncToRemote?: boolean;
 }
 
 interface ResourceOptions {
@@ -59,7 +68,7 @@ export function useCoreResourceMutation(
           companyId: currentCompany.id,
           id: args.id,
           data: args.data,
-          syncToRemote: options?.syncToRemote ?? true,
+          syncToRemote: args.syncToRemote ?? options?.syncToRemote ?? true,
         },
       });
       if (error) {
@@ -78,17 +87,23 @@ export function useCoreResourceMutation(
     onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: [meta.queryKey] });
       queryClient.invalidateQueries({ queryKey: [meta.queryKey, currentCompany?.id] });
+      const ending = meta.feminine ? "a" : "o";
       const verb =
         vars.action === "create"
-          ? "criada"
+          ? `criad${ending}`
           : vars.action === "update"
-          ? "atualizada"
-          : "removida";
+          ? `atualizad${ending}`
+          : `removid${ending}`;
       const suffix =
-        !AGENDA_SYNC_DISABLED && (options?.syncToRemote ?? true)
+        !AGENDA_SYNC_DISABLED && (vars.syncToRemote ?? options?.syncToRemote ?? true)
           ? " (sincronizado com a agenda)"
           : "";
-      toast.success(`${meta.singular} ${verb} ✓${suffix}`);
+      // Microcopy: exclusão é ação destrutiva, então o aviso sai sem ✓.
+      toast.success(
+        vars.action === "delete"
+          ? `${meta.singular} ${verb}${suffix}.`
+          : `${meta.singular} ${verb} ✓${suffix}`,
+      );
     },
     onError: (err: Error) => {
       toast.error("Não rolou: " + err.message);
